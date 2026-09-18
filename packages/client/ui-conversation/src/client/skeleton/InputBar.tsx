@@ -429,13 +429,16 @@ export const InputBar = memo(function InputBar({
               hidden
               onChange={onPickFiles}
             />
-            <div className={css.modes}>
-              {sessionId === undefined ? null : renderSlot('conversation.input.permission', { locked })}
-              {sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked })}
-            </div>
+            {sessionId === undefined
+              ? null
+              : renderSlot('conversation.input.plan', { locked })}
+
             {input === undefined || sessionId === undefined
               ? null
               : renderSlot('conversation.input.left', {})}
+            {sessionId === undefined
+              ? null
+              : <ContextMeter useProjection={useProjection} t={t} />}
           </div>
           <div className={css.trailing}>
             {input === undefined || sessionId === undefined
@@ -485,7 +488,7 @@ export const InputBar = memo(function InputBar({
         {variant === 'composer' && input !== undefined && sessionId !== undefined
           ? renderSlot('conversation.composer.dock', {})
           : null}
-        <ContextMeter useProjection={useProjection} t={t} />
+
       </div>
     </div>
   )

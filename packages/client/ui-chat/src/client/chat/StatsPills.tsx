@@ -147,29 +147,19 @@ function TimePill({ stats, t, dialog }: {
       tps: formatTokensPerSecond(stats.decodeTokens / (stats.decodeMs / 1_000)),
     })
     : null
-  const label = (
-    <span className={css.label}>
-      {counts}
-      {tps !== null && (
-        <>
-          <span className={css.sep} aria-hidden>·</span>
-          {tps}
-        </>
-      )}
-    </span>
-  )
+  const label = tps === null ? null : <span className={css.label}>{tps}</span>
   // A window without one timed figure has no dialog rows to show, so the pill
   // stays a plain reading instead of a button opening an empty dialog.
-  if (stats.llmMs <= 0 && stats.toolMs <= 0 && stats.ttftSteps <= 0 && stats.decodeMs <= 0) {
-    return (
-      <span className={css.anchor}>
-        <span className={css.pill}>
-          <IconGaugeOutline16 />
-          {label}
-        </span>
-      </span>
-    )
-  }
+  // if (stats.llmMs <= 0 && stats.toolMs <= 0 && stats.ttftSteps <= 0 && stats.decodeMs <= 0) {
+  //   return (
+  //     <span className={css.anchor}>
+  //       <span className={css.pill}>
+  //         <IconGaugeOutline16 />
+  //         {label}
+  //       </span>
+  //     </span>
+  //   )
+  // }
   return (
     <span ref={rootRef} className={css.anchor}>
       <button
@@ -195,6 +185,10 @@ function TimePill({ stats, t, dialog }: {
             <span className={dialogCss.titleLabel}>
               <IconGaugeOutline16 />
               {t('stats.dialog.title')}
+            </span>
+
+            <span className={dialogCss.titleValue}>
+              {counts}
             </span>
           </div>
           <div className={dialogCss.titleRule} aria-hidden />
@@ -257,12 +251,6 @@ function UsagePill({ usage, t, dialog }: {
         <IconDatabaseOutline16 />
         <span className={css.label}>
           {totalText}
-          {cacheHitText !== null && (
-            <>
-              <span className={css.sep} aria-hidden>·</span>
-              {cacheHitText}
-            </>
-          )}
         </span>
       </button>
       {open && createPortal(

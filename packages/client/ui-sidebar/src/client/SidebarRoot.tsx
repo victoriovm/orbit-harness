@@ -62,7 +62,11 @@ function PanelRow({ id, label, wide, usePanelInfo, selectPanel, renderSlot }: Pa
     <Tooltip label={label} delayMs={500} disabled={wide}>
       <button
         type="button"
-        className={clsx(css.panelRow, active && css.panelActive)}
+        className={clsx(
+          css.panelRow,
+          id === 'plugins' && css.pluginsButton,
+          active && css.panelActive,
+        )}
         aria-label={label}
         aria-current={active ? 'page' : undefined}
         onClick={() => { selectPanel(id) }}

@@ -288,6 +288,10 @@
   gap: 12px;
 }
 
+.modes:empty {
+  display: none;
+}
+
 .trailing {
   flex: none;
   /* Wrap keeps the left mode chips and the right controls apart when the card

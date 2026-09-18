@@ -176,9 +176,9 @@ export function apply(ctx: Context): void {
     return disposeView
   })
 
-  ctx.slots.inject('conversation.composer.dock', () =>
+  ctx.slots.inject('conversation.input.left', () =>
     ctx.slots.register({
-      name: 'conversation.composer.dock', id: 'stats', order: 0, locale: NS,
+      name: 'conversation.input.left', id: 'stats', order: 0, locale: NS,
     }, StatsPills))
 
   ctx.slots.inject('conversation.approval.detail', () =>

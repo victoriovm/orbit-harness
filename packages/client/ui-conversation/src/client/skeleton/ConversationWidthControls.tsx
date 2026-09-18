@@ -23,8 +23,11 @@ function readWidthPreference(): number | null {
 /** Resolve the width displayed for one measured Conversation column. */
 function resolveContentWidth(columnWidth: number, preference: number | null): number {
   const max = Math.max(CONTENT_MIN, columnWidth - CONTENT_EDGE_BUDGET)
-  if (preference !== null) return Math.min(Math.max(preference, CONTENT_MIN), max)
-  return Math.max(680, Math.min(columnWidth * 0.64, 920))
+
+  if (preference !== null)
+    return Math.min(Math.max(preference, CONTENT_MIN), max)
+
+  return max
 }
 
 /** Convert a wheel event's vertical delta to scrollport pixels. */
@@ -134,8 +137,11 @@ export function ConversationWidthControls({ container, phase }: ConversationWidt
     const column = container.offsetWidth
     target.style.setProperty('--dsh-conversation-column-width', `${column}px`)
     const preference = readWidthPreference()
-    if (preference === null) target.style.removeProperty('--dsh-chat-user-width')
-    else target.style.setProperty('--dsh-chat-user-width', `${resolveContentWidth(column, preference)}px`)
+
+    target.style.setProperty(
+      '--dsh-chat-user-width',
+      `${resolveContentWidth(column, preference)}px`,
+    )
   }, [])
 
   useLayoutEffect(() => {

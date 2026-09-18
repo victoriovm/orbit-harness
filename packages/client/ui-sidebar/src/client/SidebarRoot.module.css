@@ -454,6 +454,45 @@
   cursor: pointer;
 }
 
+.panelRow.pluginsButton {
+  flex: none;
+  justify-content: center;
+  gap: 6px;
+
+  height: 38px;
+  min-height: 38px;
+  padding: 8px 16px;
+  margin: 0 2px;
+
+  box-sizing: border-box;
+
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 12px;
+
+  background: var(--dsw-alias-button-elevated-fill);
+  color: var(--dsw-alias-label-primary);
+
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+
+  text-align: center;
+}
+
+.panelRow.pluginsButton:hover {
+  background: var(--dsw-alias-button-floating-hover);
+}
+
+/* Impede o estilo "painel selecionado" de voltar para o fundo escuro atual */
+.panelRow.pluginsButton.panelActive {
+  background: var(--dsw-alias-button-elevated-fill);
+  color: var(--dsw-alias-label-primary);
+}
+
+.panelRow.pluginsButton.panelActive:hover {
+  background: var(--dsw-alias-button-floating-hover);
+}
+
 .panelRow:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }

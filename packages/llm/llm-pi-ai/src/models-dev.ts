@@ -22,10 +22,10 @@ import { LlmError } from '@deepseek-ai/dsh-llm'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
 import { THINKING_LEVELS } from './catalog.ts'
 import type { PiAiModality, PiAiReasoningEfforts } from './catalog.ts'
+import { DEFAULT_MODELS_DEV_URL } from './config.ts'
 import { readBounded } from './discovery.ts'
 
-/** Catalog every deployment reads unless its configuration names a mirror. */
-export const DEFAULT_MODELS_DEV_URL = 'https://models.dev/api.json'
+export { DEFAULT_MODELS_DEV_URL }
 
 /**
  * Ceiling on the catalog reply. The file is a few megabytes and grows with

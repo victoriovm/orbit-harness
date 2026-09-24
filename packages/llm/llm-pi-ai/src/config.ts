@@ -64,6 +64,9 @@ export const DEFAULT_REQUEST_IMAGE_MAX_BYTES = 1024 * 1024
 /** Context capacity assumed for a model neither configuration nor the catalog sizes. */
 export const DEFAULT_CONTEXT_WINDOW = 262_144
 
+/** Published catalog consulted when a deployment names no mirror of its own. */
+export const DEFAULT_MODELS_DEV_URL = 'https://models.dev/api.json'
+
 /** Output capability assumed for a model neither configuration nor the catalog sizes. */
 export const DEFAULT_MAX_TOKENS = 32_768
 
@@ -230,7 +233,7 @@ export interface Config {
    * Catalog the auto-configuration action enriches a route's listing with.
    * A deployment behind a mirror or an air gap points this at its own copy.
    */
-  modelsDevUrl: Volatile<string | undefined>
+  modelsDevUrl: Volatile<string | null>
 }
 
 /** Plain options accepted by the provider resolver. */
@@ -356,7 +359,7 @@ const profile = z.object({
 /** Runtime schema for {@link Config}. */
 export const Config = z.object({
   providers: z.dict(profile).default({}).volatile(),
-  modelsDevUrl: z.string().volatile(),
+  modelsDevUrl: z.string().default(DEFAULT_MODELS_DEV_URL).volatile(),
 })
 
 /**

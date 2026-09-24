@@ -1064,7 +1064,18 @@ async function main(): Promise<void> {
     ? ('dshMandatoryUpdatePolicy' in manifest ? manifest.dshMandatoryUpdatePolicy : undefined)
     : developmentPolicy === undefined ? undefined : JSON.parse(developmentPolicy) as unknown
   const policyConfig = resolveDesktopPolicyConfig(policyInput, !app.isPackaged)
-  if (policyConfig !== undefined) {
+
+  // The deployment's policy service identifies Windows and macOS clients only. A Linux
+  // build cannot present that identity, and refusing to start would leave the shell
+  // unusable instead of enforcing an update. Host authentication is unaffected.
+  const policyPlatform: 'desktop-win' | 'desktop-mac' | undefined = process.platform === 'win32'
+    ? 'desktop-win'
+    : process.platform === 'darwin' ? 'desktop-mac' : undefined
+  if (policyConfig !== undefined && policyPlatform === undefined) {
+    console.error('dsh desktop: a mandatory-update policy is configured for an unsupported platform; starting without policy checks',
+      { platform: process.platform, arch: process.arch, origin: policyConfig.origin })
+  }
+  if (policyConfig !== undefined && policyPlatform !== undefined) {
     if (policyConfig.authentication === 'feishu-test') {
       policyAuth = new DesktopPolicyTestAuth(policyConfig.origin, policyConfig.allowedAuthOrigins, locale,
         () => mandatoryUI?.confirmationWindow ?? currentDialogWindow(),
@@ -1074,7 +1085,9 @@ async function main(): Promise<void> {
       ? ('dshDesktopAppId' in manifest ? manifest.dshDesktopAppId : undefined)
       : process.env.DSH_DESKTOP_APP_ID
     if (typeof bundleId !== 'string' || bundleId.trim() === '') throw new Error('desktop policy: missing application bundle ID')
-    if (!['win32', 'darwin'].includes(process.platform) || !['x64', 'arm64'].includes(process.arch)) throw new Error('desktop policy: unsupported platform')
+    if (!['x64', 'arm64'].includes(process.arch) || (policyPlatform === 'desktop-win' && process.arch !== 'x64')) {
+      throw new Error(`desktop policy: unsupported architecture ${process.arch}`)
+    }
     let wasBlocking = false
     mandatoryPolicy = new DesktopMandatoryUpdatePolicy(policyConfig, {
       platform: process.platform as 'win32' | 'darwin', arch: process.arch as 'x64' | 'arm64',

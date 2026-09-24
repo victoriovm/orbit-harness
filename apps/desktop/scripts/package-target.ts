@@ -1,9 +1,9 @@
 /** Build one release target with matching Electron and dsh architecture. */
 
 import { spawn } from 'node:child_process'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
-import { join, resolve } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
 import {
   desktopBuildRecordFilename,
   resolveDesktopAutoUpdateConfig,
@@ -47,14 +47,14 @@ const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
 const AUTOMATIC_BUILD_VERSION = 'auto'
 
 /** Fixed platform and architecture identifiers exposed by package scripts. */
-export type DesktopPackageTargetName = 'mac-arm64' | 'mac-x64' | 'win-x64'
+export type DesktopPackageTargetName = 'mac-arm64' | 'mac-x64' | 'win-x64' | 'linux-x64'
 
 /** One supported release target and its electron-builder selectors. */
 export interface DesktopPackageTarget {
   readonly name: DesktopPackageTargetName
-  readonly platform: 'darwin' | 'win32'
+  readonly platform: 'darwin' | 'win32' | 'linux'
   readonly arch: 'arm64' | 'x64'
-  readonly builderPlatform: '--mac' | '--win'
+  readonly builderPlatform: '--mac' | '--win' | '--linux'
   readonly builderArch: '--arm64' | '--x64'
 }
 
@@ -78,6 +78,13 @@ const TARGETS: Record<DesktopPackageTargetName, DesktopPackageTarget> = {
     platform: 'win32',
     arch: 'x64',
     builderPlatform: '--win',
+    builderArch: '--x64',
+  },
+  'linux-x64': {
+    name: 'linux-x64',
+    platform: 'linux',
+    arch: 'x64',
+    builderPlatform: '--linux',
     builderArch: '--x64',
   },
 }
@@ -188,6 +195,14 @@ export function resolveDesktopPackageTarget(
   if (name === 'mac-x64' && hostArch !== 'arm64' && hostArch !== 'x64') {
     throw new Error('desktop package: mac-x64 requires an Intel Mac or Apple Silicon with Rosetta')
   }
+  if (
+    target.platform === 'linux' &&
+    (hostPlatform !== 'linux' || hostArch !== 'x64')
+  ) {
+    throw new Error(
+      'desktop package: linux-x64 requires a Linux x64 build host',
+    )
+  }
   return target
 }
 
@@ -287,17 +302,27 @@ function runPnpm(
   cwd: string = APP_ROOT,
   run?: ReturnType<typeof createPackagingRun>,
 ): Promise<void> {
-  const pnpmEntry = process.env.npm_execpath
-  if (pnpmEntry === undefined || pnpmEntry === '') {
+  const rawEntry = process.env.npm_execpath
+  if (rawEntry === undefined || rawEntry === '') {
     throw new Error('desktop package: invoke this script through a pnpm package command')
   }
-  if (run !== undefined) return run.run(args.join(' '), process.execPath, [pnpmEntry, ...args], { cwd, env })
+  // Standalone pnpm exposes a `.exe` launcher on Windows, which node cannot
+  // load as a module. Resolve a runnable entrypoint: the bundled `.mjs` next
+  // to the launcher when present, else the launcher itself as a binary (never
+  // passed to node as a script argument).
+  const lowerEntry = rawEntry.toLowerCase()
+  const siblingMjs = lowerEntry.endsWith('.exe') || lowerEntry.endsWith('.cmd')
+    ? join(dirname(rawEntry), 'pnpm.mjs')
+    : undefined
+  const pnpmModule = siblingMjs !== undefined && existsSync(siblingMjs) ? siblingMjs : undefined
+  if (run !== undefined) {
+    if (pnpmModule !== undefined) return run.run(args.join(' '), process.execPath, [pnpmModule, ...args], { cwd, env })
+    return run.run(args.join(' '), rawEntry, args, { cwd, env })
+  }
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(process.execPath, [pnpmEntry, ...args], {
-      cwd,
-      env,
-      stdio: 'inherit',
-    })
+    const child = pnpmModule !== undefined
+      ? spawn(process.execPath, [pnpmModule, ...args], { cwd, env, stdio: 'inherit' })
+      : spawn(rawEntry, args, { cwd, env, stdio: 'inherit', shell: process.platform === 'win32' })
     child.once('error', reject)
     child.once('close', (code, signal) => {
       if (code === 0) resolvePromise()

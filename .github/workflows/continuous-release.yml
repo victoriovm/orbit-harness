@@ -1,0 +1,1564 @@
+name: Continuous Release
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: continuous-release
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  RELEASE_TAG: continuous
+
+jobs:
+
+  desktop-linux:
+    name: Desktop Linux x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            build-essential \
+            python3 \
+            pkg-config \
+            libarchive-tools \
+            libfuse2
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+
+      - name: Create Desktop environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > apps/desktop/.env.linux <<'EOF'
+          DSH_DESKTOP_APP_ID=com.victoriovm.dsh
+          DSH_DESKTOP_AUTO_UPDATE_ENV=test
+          DOWNLOAD_TEST_ORIGIN=https://127.0.0.1:9
+          DOWNLOAD_TEST_RELEASE_ID=0123456789abcdef0123456789abcdef
+          DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN=https://127.0.0.1:9
+          DSH_DESKTOP_MANDATORY_UPDATE_CONFIG='{"allowedAuthOrigins":["https://127.0.0.1:9"]}'
+          EOF
+
+      - name: Build Desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm run package:desktop:linux:x64
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p release
+
+          APPIMAGE="$(
+            find \
+              apps/desktop/.desktop-build/targets/linux-x64 \
+              -type f \
+              -name '*.AppImage' \
+              -print \
+              -quit
+          )"
+
+          if [[ -z "$APPIMAGE" ]]; then
+            echo "AppImage not found"
+
+            find \
+              apps/desktop/.desktop-build/targets/linux-x64 \
+              -type f \
+              -print || true
+
+            exit 1
+          fi
+
+          echo "AppImage: $APPIMAGE"
+
+          cp \
+            "$APPIMAGE" \
+            release/DeepSeek-Harness-linux-x64.AppImage
+
+          chmod +x \
+            release/DeepSeek-Harness-linux-x64.AppImage
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux-x64
+          path: release/DeepSeek-Harness-linux-x64.AppImage
+          if-no-files-found: error
+
+
+  desktop-windows:
+    name: Desktop Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 120
+
+    env:
+      # The bundled native Office engine hands its own paths to LibreOffice, whose file APIs
+      # stop at the legacy 260-character Windows limit; the Actions checkout plus the default
+      # build tree crosses it in `app.asar.unpacked`, so that output moves to a short root.
+      DSH_DESKTOP_ARTIFACTS_ROOT: C:\db
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enable Developer Mode
+        shell: pwsh
+        run: |
+          reg add `
+            "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" `
+            /t REG_DWORD `
+            /f `
+            /v AllowDevelopmentWithoutDevLicense `
+            /d 1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "pnpm install failed"
+          }
+
+      - name: Create Desktop environment
+        shell: pwsh
+        run: |
+          @"
+          DSH_DESKTOP_APP_ID=com.victoriovm.dsh
+          DSH_DESKTOP_AUTO_UPDATE_ENV=test
+          DOWNLOAD_TEST_ORIGIN=https://127.0.0.1:9
+          DOWNLOAD_TEST_RELEASE_ID=0123456789abcdef0123456789abcdef
+          DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN=https://127.0.0.1:9
+          DSH_DESKTOP_MANDATORY_UPDATE_CONFIG='{"allowedAuthOrigins":["https://127.0.0.1:9"]}'
+          "@ | Set-Content `
+            -Encoding utf8 `
+            apps/desktop/.env.windows
+
+      - name: Build Desktop
+        shell: pwsh
+        run: |
+          pnpm run package:desktop:win:x64:unsigned
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Desktop build failed"
+          }
+
+      - name: Prepare artifact
+        shell: pwsh
+        run: |
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path release |
+            Out-Null
+
+          $dir = `
+            "C:\db\targets\win-x64\unsigned-artifacts"
+
+          if (-not (Test-Path $dir)) {
+            throw "unsigned-artifacts not found"
+          }
+
+          $exe = Get-ChildItem `
+            $dir `
+            -Filter "*.exe" `
+            -File |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            throw "Desktop installer not found"
+          }
+
+          Write-Host "Installer: $($exe.FullName)"
+
+          Copy-Item `
+            $exe.FullName `
+            "release/DeepSeek-Harness-windows-x64.exe"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-x64
+          path: release/DeepSeek-Harness-windows-x64.exe
+          if-no-files-found: error
+
+
+  cli-linux:
+    name: CLI Linux x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            build-essential \
+            python3 \
+            pkg-config \
+            libarchive-tools
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+
+      - name: Build CLI
+        shell: bash
+        env:
+          DSH_BUILD_CLIENT_PROFILE: official
+          DSH_CLIENT_COMMIT_HASH: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          pnpm exec tsx \
+            scripts/build-exe-for-python-sdk.ts \
+            --targets=node24-linux-x64
+
+      - name: Show output
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          find \
+            dist-exe \
+            -maxdepth 2 \
+            -type f \
+            -print || true
+
+      - name: Prepare runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p payload
+
+          EXE="$(
+            find \
+              dist-exe \
+              -maxdepth 1 \
+              -type f \
+              ! -name '*-rg' \
+              ! -name '*-spawn-helper' \
+              -print \
+              -quit
+          )"
+
+          if [[ -z "$EXE" || ! -f "$EXE" ]]; then
+            echo "Linux CLI executable not found"
+            exit 1
+          fi
+
+          BASENAME="$(basename "$EXE")"
+
+          cp \
+            "$EXE" \
+            "payload/$BASENAME"
+
+          chmod +x \
+            "payload/$BASENAME"
+
+          RG="$(
+            find \
+              dist-exe \
+              python/sdk-runtime/src/deepseek_harness_runtime/runtime \
+              -type f \
+              -name "${BASENAME}-rg" \
+              -print \
+              -quit 2>/dev/null || true
+          )"
+
+          if [[ -n "$RG" ]]; then
+            cp \
+              "$RG" \
+              "payload/${BASENAME}-rg"
+
+            chmod +x \
+              "payload/${BASENAME}-rg"
+          fi
+
+          OFFICE="$(
+            find \
+              dist-exe \
+              python/sdk-runtime/src/deepseek_harness_runtime/runtime \
+              -type d \
+              -name "${BASENAME}-office" \
+              -print \
+              -quit 2>/dev/null || true
+          )"
+
+          if [[ -n "$OFFICE" ]]; then
+            cp -a \
+              "$OFFICE" \
+              "payload/${BASENAME}-office"
+          fi
+
+          BINARY="$BASENAME" node <<'NODE'
+          const fs = require('node:fs')
+
+          fs.writeFileSync(
+            'payload/runtime-info.json',
+            JSON.stringify(
+              {
+                binary: process.env.BINARY,
+                platform: 'linux',
+                arch: 'x64',
+              },
+              null,
+              2,
+            ) + '\n',
+          )
+          NODE
+
+          cp \
+            "$EXE" \
+            dsh-linux-x64
+
+          chmod +x \
+            dsh-linux-x64
+
+      - name: Test CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./dsh-linux-x64 --version
+
+      - name: Archive runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tar \
+            -czf runtime-linux-x64.tar.gz \
+            -C payload \
+            .
+
+      - name: Upload runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-linux-x64
+          path: |
+            runtime-linux-x64.tar.gz
+            dsh-linux-x64
+          if-no-files-found: error
+
+
+  cli-windows:
+    name: CLI Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "pnpm install failed"
+          }
+
+      - name: Build CLI
+        shell: pwsh
+        env:
+          DSH_BUILD_CLIENT_PROFILE: official
+          DSH_CLIENT_COMMIT_HASH: ${{ github.sha }}
+        run: |
+          pnpm exec tsx `
+            scripts/build-exe-for-python-sdk.ts `
+            --targets=node24-win-x64
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "CLI build failed"
+          }
+
+      - name: Show output
+        shell: pwsh
+        run: |
+          if (Test-Path "dist-exe") {
+            Get-ChildItem `
+              dist-exe `
+              -Recurse `
+              -File |
+              Select-Object FullName
+          }
+
+      - name: Prepare runtime
+        shell: pwsh
+        run: |
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path payload |
+            Out-Null
+
+          $exe = Get-ChildItem `
+            dist-exe `
+            -File `
+            -Filter "*.exe" |
+            Where-Object {
+              $_.Name -notlike "*-rg.exe" -and
+              $_.Name -notlike "*-spawn-helper.exe"
+            } |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            throw "Windows CLI executable not found"
+          }
+
+          $name = $exe.Name
+
+          $stem = `
+            [System.IO.Path]::GetFileNameWithoutExtension(
+              $name
+            )
+
+          Copy-Item `
+            $exe.FullName `
+            "payload/$name"
+
+          $rg = Get-ChildItem `
+            . `
+            -Recurse `
+            -File `
+            -Filter "$stem-rg.exe" `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+          if ($rg) {
+            Copy-Item `
+              $rg.FullName `
+              "payload/$($rg.Name)"
+          }
+
+          $runtimeRoot = `
+            "python/sdk-runtime/src/deepseek_harness_runtime/runtime"
+
+          if (Test-Path $runtimeRoot) {
+            $office = Get-ChildItem `
+              $runtimeRoot `
+              -Recurse `
+              -Directory `
+              -Filter "$stem-office" `
+              -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+
+            if ($office) {
+              Copy-Item `
+                $office.FullName `
+                "payload/$stem-office" `
+                -Recurse
+            }
+          }
+
+          @{
+            binary = $name
+            platform = "win32"
+            arch = "x64"
+          } |
+            ConvertTo-Json |
+            Set-Content `
+              -Encoding utf8 `
+              payload/runtime-info.json
+
+          Copy-Item `
+            $exe.FullName `
+            dsh-windows-x64.exe
+
+      - name: Test CLI
+        shell: pwsh
+        run: |
+          & ".\dsh-windows-x64.exe" --version
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "CLI test failed"
+          }
+
+      - name: Archive runtime
+        shell: pwsh
+        run: |
+          tar `
+            -czf `
+            runtime-win32-x64.tar.gz `
+            -C payload `
+            .
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Runtime archive failed"
+          }
+
+      - name: Upload runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-windows-x64
+          path: |
+            runtime-win32-x64.tar.gz
+            dsh-windows-x64.exe
+          if-no-files-found: error
+
+
+  npm-package:
+    name: Build npm packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    needs:
+      - cli-linux
+      - cli-windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download Linux runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-linux-x64
+          path: incoming/linux
+
+      - name: Download Windows runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-windows-x64
+          path: incoming/windows
+
+      - name: Extract runtimes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p \
+            runtime/linux-x64 \
+            runtime/win32-x64
+
+          tar \
+            -xzf incoming/linux/runtime-linux-x64.tar.gz \
+            -C runtime/linux-x64
+
+          tar \
+            -xzf incoming/windows/runtime-win32-x64.tar.gz \
+            -C runtime/win32-x64
+
+      - name: Create packages
+        shell: bash
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+
+          const root = JSON.parse(
+            fs.readFileSync(
+              'package.json',
+              'utf8',
+            ),
+          )
+
+          const original =
+            String(root.version)
+
+          const match =
+            original.match(
+              /^(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/,
+            )
+
+          if (!match) {
+            throw new Error(
+              `Invalid version: ${original}`,
+            )
+          }
+
+          const version =
+            `${match[1]}.victorio.${process.env.RUN_NUMBER}.${process.env.RUN_ATTEMPT}.${process.env.COMMIT_SHA.slice(0, 8)}`
+
+          const linux =
+            JSON.parse(
+              fs.readFileSync(
+                'runtime/linux-x64/runtime-info.json',
+                'utf8',
+              ),
+            )
+
+          const windows =
+            JSON.parse(
+              fs.readFileSync(
+                'runtime/win32-x64/runtime-info.json',
+                'utf8',
+              ),
+            )
+
+          fs.rmSync(
+            'npm-stage',
+            {
+              recursive: true,
+              force: true,
+            },
+          )
+
+          fs.mkdirSync(
+            'npm-stage/linux-x64/runtime',
+            {
+              recursive: true,
+            },
+          )
+
+          fs.mkdirSync(
+            'npm-stage/win32-x64/runtime',
+            {
+              recursive: true,
+            },
+          )
+
+          fs.mkdirSync(
+            'npm-stage/main/bin',
+            {
+              recursive: true,
+            },
+          )
+
+          fs.cpSync(
+            'runtime/linux-x64',
+            'npm-stage/linux-x64/runtime',
+            {
+              recursive: true,
+            },
+          )
+
+          fs.cpSync(
+            'runtime/win32-x64',
+            'npm-stage/win32-x64/runtime',
+            {
+              recursive: true,
+            },
+          )
+
+          const linuxBinary =
+            path.join(
+              'npm-stage/linux-x64/runtime',
+              linux.binary,
+            )
+
+          if (
+            fs.existsSync(
+              linuxBinary,
+            )
+          ) {
+            fs.chmodSync(
+              linuxBinary,
+              0o755,
+            )
+          }
+
+          const repository = {
+            type: 'git',
+            url:
+              `https://github.com/${process.env.REPOSITORY}.git`,
+          }
+
+          const publishConfig = {
+            access: 'public',
+            registry:
+              'https://npm.pkg.github.com',
+          }
+
+          fs.writeFileSync(
+            'npm-stage/linux-x64/package.json',
+            JSON.stringify(
+              {
+                name:
+                  '@victoriovm/dsh-linux-x64',
+
+                version,
+
+                description:
+                  'Linux x64 runtime for @victoriovm/dsh',
+
+                os: [
+                  'linux',
+                ],
+
+                cpu: [
+                  'x64',
+                ],
+
+                files: [
+                  'runtime/**',
+                ],
+
+                repository,
+
+                publishConfig,
+
+                dshBinary:
+                  linux.binary,
+              },
+              null,
+              2,
+            ) + '\n',
+          )
+
+          fs.writeFileSync(
+            'npm-stage/win32-x64/package.json',
+            JSON.stringify(
+              {
+                name:
+                  '@victoriovm/dsh-win32-x64',
+
+                version,
+
+                description:
+                  'Windows x64 runtime for @victoriovm/dsh',
+
+                os: [
+                  'win32',
+                ],
+
+                cpu: [
+                  'x64',
+                ],
+
+                files: [
+                  'runtime/**',
+                ],
+
+                repository,
+
+                publishConfig,
+
+                dshBinary:
+                  windows.binary,
+              },
+              null,
+              2,
+            ) + '\n',
+          )
+
+          const launcher = `#!/usr/bin/env node
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const { spawnSync } = require('node:child_process')
+
+          const key =
+            process.platform +
+            '-' +
+            process.arch
+
+          const packages = {
+            'linux-x64':
+              '@victoriovm/dsh-linux-x64',
+
+            'win32-x64':
+              '@victoriovm/dsh-win32-x64',
+          }
+
+          const packageName =
+            packages[key]
+
+          if (!packageName) {
+            console.error(
+              'Unsupported platform: ' +
+              key
+            )
+
+            process.exit(1)
+          }
+
+          let manifestPath
+
+          try {
+            manifestPath =
+              require.resolve(
+                packageName +
+                '/package.json'
+              )
+          }
+          catch {
+            console.error(
+              'Missing native package: ' +
+              packageName
+            )
+
+            console.error(
+              'Run: npm i -g @victoriovm/dsh'
+            )
+
+            process.exit(1)
+          }
+
+          const manifest =
+            require(manifestPath)
+
+          if (
+            typeof manifest.dshBinary !==
+            'string'
+          ) {
+            console.error(
+              'Invalid runtime manifest'
+            )
+
+            process.exit(1)
+          }
+
+          const executable =
+            path.join(
+              path.dirname(manifestPath),
+              'runtime',
+              manifest.dshBinary
+            )
+
+          if (!fs.existsSync(executable)) {
+            console.error(
+              'Executable not found: ' +
+              executable
+            )
+
+            process.exit(1)
+          }
+
+          if (process.platform !== 'win32') {
+            try {
+              fs.chmodSync(
+                executable,
+                0o755
+              )
+            }
+            catch {}
+          }
+
+          const result =
+            spawnSync(
+              executable,
+              process.argv.slice(2),
+              {
+                cwd:
+                  process.cwd(),
+
+                env:
+                  process.env,
+
+                stdio:
+                  'inherit',
+              }
+            )
+
+          if (result.error) {
+            console.error(
+              result.error.message
+            )
+
+            process.exit(1)
+          }
+
+          if (result.signal === 'SIGINT') {
+            process.exit(130)
+          }
+
+          if (result.signal === 'SIGTERM') {
+            process.exit(143)
+          }
+
+          process.exit(
+            result.status ?? 1
+          )
+          `
+
+          fs.writeFileSync(
+            'npm-stage/main/bin/dsh.cjs',
+            launcher
+              .split('\n')
+              .map(
+                line =>
+                  line.replace(
+                    /^          /,
+                    '',
+                  ),
+              )
+              .join('\n'),
+          )
+
+          fs.chmodSync(
+            'npm-stage/main/bin/dsh.cjs',
+            0o755,
+          )
+
+          fs.writeFileSync(
+            'npm-stage/main/package.json',
+            JSON.stringify(
+              {
+                name:
+                  '@victoriovm/dsh',
+
+                version,
+
+                description:
+                  'DeepSeek Harness standalone CLI',
+
+                type:
+                  'commonjs',
+
+                bin: {
+                  dsh:
+                    'bin/dsh.cjs',
+                },
+
+                files: [
+                  'bin/**',
+                ],
+
+                optionalDependencies: {
+                  '@victoriovm/dsh-linux-x64':
+                    version,
+
+                  '@victoriovm/dsh-win32-x64':
+                    version,
+                },
+
+                engines: {
+                  node:
+                    '>=18',
+                },
+
+                repository,
+
+                publishConfig,
+              },
+              null,
+              2,
+            ) + '\n',
+          )
+
+          fs.writeFileSync(
+            '.npm-version',
+            version + '\n',
+          )
+
+          console.log(
+            `Version: ${version}`,
+          )
+          NODE
+
+      - name: Pack packages
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p release
+
+          node <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const {
+            execFileSync,
+          } = require('node:child_process')
+
+          const release =
+            path.resolve('release')
+
+          const targets = [
+            {
+              directory:
+                path.resolve(
+                  'npm-stage/linux-x64',
+                ),
+
+              output:
+                'victoriovm-dsh-linux-x64.tgz',
+            },
+
+            {
+              directory:
+                path.resolve(
+                  'npm-stage/win32-x64',
+                ),
+
+              output:
+                'victoriovm-dsh-win32-x64.tgz',
+            },
+
+            {
+              directory:
+                path.resolve(
+                  'npm-stage/main',
+                ),
+
+              output:
+                'victoriovm-dsh.tgz',
+            },
+          ]
+
+          for (const target of targets) {
+            const raw =
+              execFileSync(
+                'npm',
+                [
+                  'pack',
+                  '.',
+                  '--json',
+                  '--pack-destination',
+                  release,
+                ],
+                {
+                  cwd:
+                    target.directory,
+
+                  encoding:
+                    'utf8',
+                },
+              )
+
+            const result =
+              JSON.parse(raw)
+
+            if (
+              !Array.isArray(result) ||
+              result.length !== 1 ||
+              typeof result[0].filename !==
+                'string'
+            ) {
+              throw new Error(
+                `npm pack failed: ${target.directory}`,
+              )
+            }
+
+            const source =
+              path.join(
+                release,
+                result[0].filename,
+              )
+
+            const destination =
+              path.join(
+                release,
+                target.output,
+              )
+
+            fs.rmSync(
+              destination,
+              {
+                force: true,
+              },
+            )
+
+            fs.renameSync(
+              source,
+              destination,
+            )
+
+            console.log(
+              `${target.directory} -> ${destination}`,
+            )
+          }
+          NODE
+
+          cp \
+            incoming/linux/dsh-linux-x64 \
+            release/dsh-linux-x64
+
+          chmod +x \
+            release/dsh-linux-x64
+
+          cp \
+            incoming/windows/dsh-windows-x64.exe \
+            release/dsh-windows-x64.exe
+
+          cp \
+            .npm-version \
+            release/npm-version.txt
+
+      - name: Validate packages
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test \
+            -f \
+            release/victoriovm-dsh-linux-x64.tgz
+
+          test \
+            -f \
+            release/victoriovm-dsh-win32-x64.tgz
+
+          test \
+            -f \
+            release/victoriovm-dsh.tgz
+
+          test \
+            -f \
+            release/dsh-linux-x64
+
+          test \
+            -f \
+            release/dsh-windows-x64.exe
+
+          node <<'NODE'
+          const {
+            execFileSync,
+          } = require('node:child_process')
+
+          for (
+            const file
+            of [
+              'release/victoriovm-dsh-linux-x64.tgz',
+              'release/victoriovm-dsh-win32-x64.tgz',
+              'release/victoriovm-dsh.tgz',
+            ]
+          ) {
+            const manifest =
+              JSON.parse(
+                execFileSync(
+                  'tar',
+                  [
+                    '-xOf',
+                    file,
+                    'package/package.json',
+                  ],
+                  {
+                    encoding: 'utf8',
+                  },
+                ),
+              )
+
+            console.log(
+              `${file}: ${manifest.name}@${manifest.version}`,
+            )
+
+            console.log(
+              `registry: ${manifest.publishConfig?.registry}`,
+            )
+          }
+          NODE
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-and-cli
+          path: |
+            release/victoriovm-dsh.tgz
+            release/victoriovm-dsh-linux-x64.tgz
+            release/victoriovm-dsh-win32-x64.tgz
+            release/dsh-linux-x64
+            release/dsh-windows-x64.exe
+            release/npm-version.txt
+          if-no-files-found: error
+
+
+  publish-github-packages:
+    name: Publish GitHub Packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    needs:
+      - npm-package
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://npm.pkg.github.com
+          scope: "@victoriovm"
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-and-cli
+          path: release
+
+      - name: Configure registry
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          cat > "$HOME/.npmrc" <<EOF
+          @victoriovm:registry=https://npm.pkg.github.com
+          //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+          always-auth=true
+          EOF
+
+      - name: Validate files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test \
+            -f \
+            "$PWD/release/victoriovm-dsh-linux-x64.tgz"
+
+          test \
+            -f \
+            "$PWD/release/victoriovm-dsh-win32-x64.tgz"
+
+          test \
+            -f \
+            "$PWD/release/victoriovm-dsh.tgz"
+
+          ls -lh \
+            "$PWD/release/victoriovm-dsh-linux-x64.tgz" \
+            "$PWD/release/victoriovm-dsh-win32-x64.tgz" \
+            "$PWD/release/victoriovm-dsh.tgz"
+
+      - name: Publish Linux package
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          npm publish \
+            "$PWD/release/victoriovm-dsh-linux-x64.tgz" \
+            --registry=https://npm.pkg.github.com \
+            --access public \
+            --tag latest
+
+      - name: Publish Windows package
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          npm publish \
+            "$PWD/release/victoriovm-dsh-win32-x64.tgz" \
+            --registry=https://npm.pkg.github.com \
+            --access public \
+            --tag latest
+
+      - name: Publish main package
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          npm publish \
+            "$PWD/release/victoriovm-dsh.tgz" \
+            --registry=https://npm.pkg.github.com \
+            --access public \
+            --tag latest
+
+      - name: Verify package
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          EXPECTED="$(
+            tr -d '\r\n' \
+              < release/npm-version.txt
+          )"
+
+          ACTUAL="$(
+            npm view \
+              @victoriovm/dsh@latest \
+              version \
+              --registry=https://npm.pkg.github.com
+          )"
+
+          echo "Expected:  $EXPECTED"
+          echo "Published: $ACTUAL"
+
+          if [[ "$EXPECTED" != "$ACTUAL" ]]; then
+            echo "Published version mismatch"
+            exit 1
+          fi
+
+
+  release:
+    name: Update Continuous Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    needs:
+      - desktop-linux
+      - desktop-windows
+      - npm-package
+      - publish-github-packages
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download Linux Desktop
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-linux-x64
+          path: release
+
+      - name: Download Windows Desktop
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-windows-x64
+          path: release
+
+      - name: Download CLI and npm
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-and-cli
+          path: release
+
+      - name: Validate files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test \
+            -f \
+            release/DeepSeek-Harness-linux-x64.AppImage
+
+          test \
+            -f \
+            release/DeepSeek-Harness-windows-x64.exe
+
+          test \
+            -f \
+            release/dsh-linux-x64
+
+          test \
+            -f \
+            release/dsh-windows-x64.exe
+
+          test \
+            -f \
+            release/victoriovm-dsh.tgz
+
+          test \
+            -f \
+            release/victoriovm-dsh-linux-x64.tgz
+
+          test \
+            -f \
+            release/victoriovm-dsh-win32-x64.tgz
+
+          find \
+            release \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f %s bytes\n'
+
+      - name: Create or move tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
+            >/dev/null 2>&1
+          then
+            gh api \
+              --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}" \
+              -f sha="${GITHUB_SHA}" \
+              -F force=true
+          else
+            gh api \
+              --method POST \
+              "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${RELEASE_TAG}" \
+              -f sha="${GITHUB_SHA}"
+          fi
+
+      - name: Create or update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          VERSION="$(
+            tr -d '\r\n' \
+              < release/npm-version.txt
+          )"
+
+          NOTES="$(cat <<EOF
+          Continuous build.
+
+          Commit:
+          \`${GITHUB_SHA}\`
+
+          GitHub Packages:
+          \`@victoriovm/dsh@${VERSION}\`
+
+          Install:
+          \`npm i -g @victoriovm/dsh\`
+
+          Run:
+          \`dsh web\`
+
+          Desktop:
+          - Linux x64 AppImage
+          - Windows x64 installer
+
+          CLI:
+          - Linux x64
+          - Windows x64
+          EOF
+          )"
+
+          if gh release view \
+            "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            >/dev/null 2>&1
+          then
+            gh release edit \
+              "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Continuous Build" \
+              --notes "$NOTES"
+          else
+            gh release create \
+              "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Continuous Build" \
+              --notes "$NOTES"
+          fi
+
+      - name: Upload assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh release upload \
+            "$RELEASE_TAG" \
+            release/DeepSeek-Harness-linux-x64.AppImage \
+            release/DeepSeek-Harness-windows-x64.exe \
+            release/dsh-linux-x64 \
+            release/dsh-windows-x64.exe \
+            release/victoriovm-dsh.tgz \
+            release/victoriovm-dsh-linux-x64.tgz \
+            release/victoriovm-dsh-win32-x64.tgz \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+      - name: Show release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh release view \
+            "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY"

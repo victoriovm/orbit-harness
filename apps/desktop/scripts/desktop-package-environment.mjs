@@ -27,7 +27,14 @@ const FILE_SETTINGS = ['DSH_DESKTOP_WINDOWS_CER_FILE', 'DSH_DESKTOP_WINDOWS_SIGN
  * @returns {NodeJS.ProcessEnv} Isolated environment with file-owned release settings.
  */
 export function loadDesktopPackageEnvironment(platform, environment = process.env, appRoot = APP_ROOT) {
-  const path = join(appRoot, platform === 'win32' ? '.env.windows' : '.env.macos')
+  const path = join(
+    appRoot,
+    platform === 'win32'
+      ? '.env.windows'
+      : platform === 'darwin'
+        ? '.env.macos'
+        : '.env.linux',
+  )
   let contents
   try {
     contents = readFileSync(path, 'utf8')
@@ -78,10 +85,10 @@ function requireReadableFile(environment, name) {
  */
 export function validateDesktopPackageEnvironment(environment, target, options = {}) {
   resolveDesktopAppId(environment)
-  resolveNpmRegistry(environment)
+resolveNpmRegistry(environment)
   resolveDesktopPolicyEnvironment(environment)
   if (target.platform === 'darwin') resolveMacOSPackageSettings(environment)
-  else resolveWindowsPackageSettings(environment)
+  else if (target.platform === 'win32') resolveWindowsPackageSettings(environment)
   if (options.unsigned) return
   if (!options.prepareOnly) resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
   if (target.platform === 'win32') {
@@ -91,8 +98,8 @@ export function validateDesktopPackageEnvironment(environment, target, options =
       tokenPin: environment.DSH_DESKTOP_WINDOWS_TOKEN_PIN,
       keyContainer: environment.DSH_DESKTOP_WINDOWS_KEY_CONTAINER,
     })
-    if (!options.prepareOnly) resolveWindowsSignatureCacheDirectory(environment)
-  } else {
+if (!options.prepareOnly) resolveWindowsSignatureCacheDirectory(environment)
+  } else if (target.platform === 'darwin') {
     resolveMacOSSigningEnvironment(environment)
     const strategies = [
       ['APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID'],

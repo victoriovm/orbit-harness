@@ -3,9 +3,25 @@ import { build } from 'vite'
 import { fileURLToPath } from 'node:url'
 import { readFile } from 'node:fs/promises'
 
+/**
+ * Workspace packages the main process bundles from their sources.
+ *
+ * The packaged application installs this package's `dependencies` only, so its devDependencies
+ * have no copy to resolve at runtime: they must be inlined. tsdown externalizes a package whose
+ * emitted `lib/` it cannot read, without failing the build, so these three resolve from `src`
+ * and a bundle-time build never depends on that output.
+ */
+const bundledWorkspacePackages = {
+  '@deepseek-ai/dsh-app-boot': fileURLToPath(new URL('../../packages/boot/app-boot/src/index.ts', import.meta.url)),
+  '@deepseek-ai/dsh-deepseek-account': fileURLToPath(new URL('../../packages/credentials/deepseek-account/src/index.ts', import.meta.url)),
+  '@deepseek-ai/dsh-home-paths': fileURLToPath(new URL('../../packages/util/home-paths/src/index.ts', import.meta.url)),
+}
+
 export default defineConfig([
   {
     entry: ['lib/types/main.js'],
+    alias: bundledWorkspacePackages,
+    deps: { neverBundle: ['electron'], alwaysBundle: Object.keys(bundledWorkspacePackages) },
     onSuccess: async () => {
       await build({
         configFile: false,

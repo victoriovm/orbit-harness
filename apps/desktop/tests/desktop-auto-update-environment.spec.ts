@@ -107,8 +107,9 @@ describe('desktop auto-update environment', () => {
     expect(() => resolveDesktopAutoUpdateEnvironment({
       DSH_DESKTOP_AUTO_UPDATE_ENV: 'staging',
     })).toThrow(/test.*production/u)
-    expect(() => resolveDesktopAutoUpdateTarget('linux', 'x64')).toThrow(/unsupported target/u)
-    expect(() => desktopBuildRecordFilename('linux-x64' as 'mac-arm64')).toThrow(/unsupported target/u)
+    expect(resolveDesktopAutoUpdateTarget('linux', 'x64')).toBe('linux-x64')
+    expect(desktopBuildRecordFilename('linux-x64')).toBe('linux-x64-release.json')
+    expect(() => resolveDesktopAutoUpdateTarget('linux', 'arm64')).toThrow(/unsupported target/u)
   })
 
   it('uses Nightly metadata for stable and prerelease Desktop versions', () => {
@@ -116,6 +117,6 @@ describe('desktop auto-update environment', () => {
     expect(desktopUpdateMetadataFilename('1.2.3-alpha.4', 'darwin')).toBe('nightly-mac.yml')
     expect(desktopUpdateMetadataFilename('1.2.3-beta.2', 'win32')).toBe('nightly.yml')
     expect(() => desktopUpdateMetadataFilename('not-semver', 'darwin')).toThrow(/invalid Desktop version/u)
-    expect(() => desktopUpdateMetadataFilename('1.2.3', 'linux')).toThrow(/unsupported metadata platform/u)
+    expect(desktopUpdateMetadataFilename('1.2.3', 'linux')).toBe('nightly-linux.yml')
   })
 })

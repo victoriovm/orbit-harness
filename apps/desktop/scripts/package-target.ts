@@ -1,10 +1,10 @@
 /** Build one release target with matching Electron and dsh architecture. */
 
 import { spawn } from 'node:child_process'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { parseArgs } from 'node:util'
-import { join, resolve } from 'node:path'
+import { dirname, extname, join, resolve } from 'node:path'
 import {
   desktopBuildRecordFilename,
   resolveDesktopAutoUpdateConfig,
@@ -300,7 +300,16 @@ export function desktopElectronBuilderArguments(
 function resolvePnpmModule(): string | undefined {
   try {
     const require = createRequire(join(APP_ROOT, 'package.json'))
-    return require.resolve('pnpm/bin/pnpm.mjs')
+    // The exports map of pnpm 11 only exposes `.`, so subpaths cannot be
+    // resolved directly; the manifest is resolvable and its `bin` field names
+    // the JS entrypoint.
+    const manifest = require.resolve('pnpm')
+    const pkg = JSON.parse(readFileSync(manifest, 'utf8')) as { bin?: unknown }
+    const bin = typeof pkg.bin === 'string' ? pkg.bin : typeof pkg.bin === 'object' && pkg.bin !== null ? (pkg.bin as Record<string, unknown>).pnpm : undefined
+    const entry = typeof bin === 'string' ? bin : undefined
+    if (entry === undefined) return undefined
+    const module = join(dirname(manifest), entry)
+    return existsSync(module) ? module : undefined
   } catch {
     return undefined
   }
@@ -333,9 +342,26 @@ function runPnpm(
   if (rawEntry === undefined || rawEntry === '') {
     throw new Error('desktop package: invoke this script through a pnpm package command')
   }
-  if (run !== undefined) return run.run(args.join(' '), rawEntry, args, { cwd, env, shell: process.platform === 'win32' })
+  // JS entrypoints are run through node: spawning them directly fails (EFTYPE
+  // on Windows), and a shell would hand them to the OS file association, which
+  // detaches and reports success without running anything. Launcher shims are
+  // scripts too: `.cmd` must go through a shell, `.exe` is a real executable.
+  const entryExtension = extname(rawEntry).toLowerCase()
+  const jsEntry = entryExtension === '.mjs' || entryExtension === '.cjs' || entryExtension === '.js'
+  if (jsEntry) {
+    if (run !== undefined) return run.run(args.join(' '), process.execPath, [rawEntry, ...args], { cwd, env })
+    return new Promise((resolvePromise, reject) => {
+      const child = spawn(process.execPath, [rawEntry, ...args], { cwd, env, stdio: 'inherit' })
+      child.once('error', reject)
+      child.once('close', (code, signal) => {
+        if (code === 0) resolvePromise()
+        else reject(new Error(`desktop package: pnpm ${args.join(' ')} exited with ${String(code ?? signal)}`))
+      })
+    })
+  }
+  if (run !== undefined) return run.run(args.join(' '), rawEntry, args, { cwd, env, shell: entryExtension === '.cmd' })
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(rawEntry, args, { cwd, env, stdio: 'inherit', shell: process.platform === 'win32' })
+    const child = spawn(rawEntry, args, { cwd, env, stdio: 'inherit', shell: entryExtension === '.cmd' })
     child.once('error', reject)
     child.once('close', (code, signal) => {
       if (code === 0) resolvePromise()

@@ -1,9 +1,10 @@
 /** Build one release target with matching Electron and dsh architecture. */
 
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { parseArgs } from 'node:util'
-import { join, dirname, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   desktopBuildRecordFilename,
   resolveDesktopAutoUpdateConfig,
@@ -296,36 +297,45 @@ export function desktopElectronBuilderArguments(
   ]
 }
 
+function resolvePnpmModule(): string | undefined {
+  try {
+    const require = createRequire(join(APP_ROOT, 'package.json'))
+    return require.resolve('pnpm/bin/pnpm.mjs')
+  } catch {
+    return undefined
+  }
+}
+
 function runPnpm(
   args: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
   cwd: string = APP_ROOT,
   run?: ReturnType<typeof createPackagingRun>,
 ): Promise<void> {
+  // The workspace pins `pnpm` as a dependency, so its JS entrypoint is always
+  // resolvable and runnable through node. Launcher shims (`.exe`/`.cmd`) vary
+  // by install method and host, and spawning them directly fails (EFTYPE on
+  // Windows runners, ERR_UNKNOWN_FILE_EXTENSION under node), so they are only
+  // a last resort and never passed to node as a script.
+  const pnpmModule = resolvePnpmModule()
+  if (pnpmModule !== undefined) {
+    if (run !== undefined) return run.run(args.join(' '), process.execPath, [pnpmModule, ...args], { cwd, env })
+    return new Promise((resolvePromise, reject) => {
+      const child = spawn(process.execPath, [pnpmModule, ...args], { cwd, env, stdio: 'inherit' })
+      child.once('error', reject)
+      child.once('close', (code, signal) => {
+        if (code === 0) resolvePromise()
+        else reject(new Error(`desktop package: pnpm ${args.join(' ')} exited with ${String(code ?? signal)}`))
+      })
+    })
+  }
   const rawEntry = process.env.npm_execpath
   if (rawEntry === undefined || rawEntry === '') {
     throw new Error('desktop package: invoke this script through a pnpm package command')
   }
-  // Standalone pnpm exposes a `.exe` launcher on Windows, which node cannot
-  // load as a module. Resolve a runnable entrypoint: the bundled `.mjs` next
-  // to the launcher when present, else the launcher itself as a binary (never
-  // passed to node as a script argument).
-  const lowerEntry = rawEntry.toLowerCase()
-  const siblingMjs = lowerEntry.endsWith('.exe') || lowerEntry.endsWith('.cmd')
-    ? join(dirname(rawEntry), 'pnpm.mjs')
-    : undefined
-  const pnpmModule = siblingMjs !== undefined && existsSync(siblingMjs) ? siblingMjs : undefined
-  if (run !== undefined) {
-    if (pnpmModule !== undefined) return run.run(args.join(' '), process.execPath, [pnpmModule, ...args], { cwd, env })
-    // A `.cmd` launcher is a shell script, not an executable image: spawning
-    // it directly fails with EFTYPE, so it must go through a shell.
-    if (lowerEntry.endsWith('.cmd')) return run.run(args.join(' '), rawEntry, args, { cwd, env, shell: true })
-    return run.run(args.join(' '), rawEntry, args, { cwd, env })
-  }
+  if (run !== undefined) return run.run(args.join(' '), rawEntry, args, { cwd, env, shell: process.platform === 'win32' })
   return new Promise((resolvePromise, reject) => {
-    const child = pnpmModule !== undefined
-      ? spawn(process.execPath, [pnpmModule, ...args], { cwd, env, stdio: 'inherit' })
-      : spawn(rawEntry, args, { cwd, env, stdio: 'inherit', shell: process.platform === 'win32' })
+    const child = spawn(rawEntry, args, { cwd, env, stdio: 'inherit', shell: process.platform === 'win32' })
     child.once('error', reject)
     child.once('close', (code, signal) => {
       if (code === 0) resolvePromise()

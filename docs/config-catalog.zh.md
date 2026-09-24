@@ -1452,6 +1452,14 @@ export interface Config {
  * reasoning effort resolves to `high`.
  */
 export interface Config {
+  /**
+   * Whether this route serves at all. A disabled provider registers no route:
+   * it leaves the model picker and the provider directory while its profile,
+   * its credential, and its Models-page row stay in place, so the same switch
+   * turns it back on. Deployment compositions configure it in YAML; the web
+   * Models page writes it through the `llm-deepseek` settings section.
+   */
+  enabled: Volatile<boolean>
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv: Volatile<string>
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL from a trusted environment layer, then the public API. */
@@ -1542,6 +1550,11 @@ export interface Config {
    * and registers them the moment a settings section supplies profiles.
    */
   providers: Volatile<Record<string, PiAiProviderProfile>>
+  /**
+   * Catalog the auto-configuration action enriches a route's listing with.
+   * A deployment behind a mirror or an air gap points this at its own copy.
+   */
+  modelsDevUrl: Volatile<string | undefined>
 }
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */

@@ -502,6 +502,7 @@ describe('ModelsSection', () => {
       entry,
       configured: true,
       removable: false,
+      disabled: false,
       apiKeyEnv: 'X',
       credential,
     })

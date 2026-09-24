@@ -383,7 +383,10 @@ button.crumb:hover {
      preference; embedded occurrences override this adaptive axis below. */
   --dsh-chat-content-width: var(
     --dsh-chat-user-width,
-    clamp(680px, calc(var(--dsh-conversation-column-width, 0px) * 0.64), 920px)
+    max(
+      640px,
+      calc(var(--dsh-conversation-column-width, 0px) - 176px)
+    )
   );
   --dsh-composer-card-max-width: calc(var(--dsh-chat-content-width) + 32px);
   --dsh-composer-side-clearance: 16px;

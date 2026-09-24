@@ -1704,6 +1704,7 @@ describe('plugin registration and config', () => {
       displayName: 'DeepSeek',
       settingsNs: 'llm-deepseek',
       settingsPath: [],
+      disableField: 'enabled',
     }])
     await fiber.dispose()
     expect(ctx.llm.listProviders()).toEqual([])

@@ -62,6 +62,14 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Trailing header controls: caller actions sit beside the shell-owned close. */
+.headerEnd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .close {
   flex: none;
   display: inline-flex;

@@ -55,8 +55,9 @@ describe('render branch tails', () => {
         useProjection={() => undefined}
       />,
     )
-    expect(view.container.textContent).toBe('2 轮 3 步')
-    // Window-fold counts carry no timed figure, so the pill is a static reading.
+    expect(view.container.textContent).toBe('')
+    // The untimed window-fold counts carry no timed figure, so the time pill
+    // stays an icon-only static reading with no visible counts text.
     expect(view.queryAllByRole('button')).toHaveLength(0)
   })
 

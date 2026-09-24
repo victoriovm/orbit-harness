@@ -67,6 +67,7 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
     if (
       (!automatic && !explicit)
       || readiness.kind === 'adapter-absent'
+      || readiness.kind === 'add-provider'
       || (!explicit && readiness.kind === 'provider-ready')
       || readiness.kind === 'unavailable'
     ) complete()
@@ -77,6 +78,7 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
   switch (readiness.kind) {
     case 'loading':
     case 'adapter-absent':
+    case 'add-provider':
     case 'unavailable':
       return null
     case 'provider-ready':

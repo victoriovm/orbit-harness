@@ -4,6 +4,7 @@ import type {} from '@deepseek-ai/dsh-deepseek-account'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type { Context } from '@deepseek-ai/cordis'
 import { assertUsableApiKey, LlmError, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
+import type { AdapterRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-fs'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
@@ -106,14 +107,52 @@ export function apply(ctx: Context, config: Config): void {
         ?? Promise.resolve({ fields: {}, accept: () => Promise.resolve() })
     },
   })
-  ctx.llm.registerConfigurableProviders([
-    { provider: PROVIDER, displayName: 'DeepSeek', settingsNs: ctx.fiber.entry?.options.id ?? NS, settingsPath: [] },
-  ])
+  // The whole section is this provider's profile, so the page cannot remove it
+  // by unsetting the user layer — that would only restore the composition.
+  // This switch is how the route is withdrawn with the profile kept.
+  const directoryEntry: LlmConfigurableProvider = {
+    provider: PROVIDER,
+    displayName: 'DeepSeek',
+    settingsNs: ctx.fiber.entry?.options.id ?? NS,
+    settingsPath: [] as readonly string[],
+    disableField: 'enabled',
+  }
+  ctx.llm.registerConfigurableProviders([directoryEntry])
   // Route effects bind to this apply fiber via the stable `ctx` reference,
   // even when a swap runs inside the scoped settings callback below.
-  const registration = ctx.llm.registerAdapter([PROVIDER], adapter)
+  let registration: AdapterRegistrationHandle | undefined
+  let holdingRoutes = false
   let registeredPolicy = options().retryPolicy
-  const ensureRegistrationFacts = (): void => {
+  /**
+   * Keep the route set in step with configuration. A disabled provider holds no
+   * routes, which is what takes it out of the picker and the provider directory
+   * while leaving its section and page row in place.
+   */
+  const syncRoutes = (): void => {
+    const enabled = plainOptions(config).enabled !== false
+    if (registration === undefined) {
+      // `registerAdapter` refuses an empty route set, so a provider disabled
+      // from the start waits here until configuration asks for its route.
+      if (!enabled) return
+      try {
+        registeredPolicy = options().retryPolicy
+      } catch (error) {
+        // A stored config the resolver refuses keeps the current (empty)
+        // registration; each request fails on its own resolve.
+        ctx.logger.warn(error)
+        return
+      }
+      registration = ctx.llm.registerAdapter([PROVIDER], adapter)
+      holdingRoutes = true
+      return
+    }
+    if (!enabled) {
+      if (holdingRoutes) {
+        registration.replace([])
+        holdingRoutes = false
+      }
+      return
+    }
     let policy: ResolvedDeepSeekOptions['retryPolicy']
     try {
       policy = options().retryPolicy
@@ -122,15 +161,20 @@ export function apply(ctx: Context, config: Config): void {
       ctx.logger.warn(error)
       return
     }
-    if (deepEqualJson(policy, registeredPolicy)) return
+    if (holdingRoutes && deepEqualJson(policy, registeredPolicy)) return
     // The registry captures the retry policy at registration, so it is the one
     // fact per-request resolution cannot refresh. `replace` re-reads it in one
     // synchronous registry section: disposing and re-registering instead would
     // publish an empty route set between the two, and an observer that reacted
-    // to it would see this provider disappear and come back.
+    // to it would see this provider disappear and come back. Re-enabling takes
+    // the same path, so a provider that comes back is never briefly absent.
     registration.replace([PROVIDER])
+    holdingRoutes = true
     registeredPolicy = policy
   }
+  syncRoutes()
+
+  const ensureRegistrationFacts = (): void => { syncRoutes() }
 
   ctx.on('loader/volatile-update', ensureRegistrationFacts)
 }

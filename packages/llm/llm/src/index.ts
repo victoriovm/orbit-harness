@@ -16,6 +16,9 @@ import type {
   LlmDiscoveredModel,
   LlmFailure,
   LlmImageRequestPricing,
+  LlmModelAutoConfigOperation,
+  LlmModelAutoConfigRequest,
+  LlmModelAutoConfigResult,
   LlmModelContext,
   LlmModelDiscoveryRequest,
   LlmModelInfo,
@@ -341,6 +344,10 @@ export class LlmRuntime extends TypertRemoteService {
     string,
     (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>
   >()
+  private autoConfigurations = new Map<
+    string,
+    (request: LlmModelAutoConfigOperation) => Promise<LlmModelAutoConfigResult>
+  >()
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
@@ -645,6 +652,91 @@ export class LlmRuntime extends TypertRemoteService {
           settingsNs,
           ...request.baseURL === undefined ? {} : { baseURL: request.baseURL },
         },
+        { cause: error },
+      )
+    }
+  }
+
+  /**
+   * Offer to auto-configure stored provider routes on behalf of the settings
+   * namespace this plugin owns, and publish that offer through the namespace's
+   * configurable-provider entries. The operation reads AND writes that
+   * namespace's own section, so it is the namespace owner — not an adapter —
+   * that offers it: only the owner can both reach a route's stored endpoint and
+   * credential and store the models it announced. Disposed with the fiber.
+   * @param settingsNs - the namespace whose profiles this auto-configuration serves.
+   * @param configure - reconfigures one route and reports what it stored.
+   * @returns the disposer that withdraws the offer.
+   */
+  registerModelAutoConfiguration(
+    settingsNs: string,
+    configure: (request: LlmModelAutoConfigOperation) => Promise<LlmModelAutoConfigResult>,
+  ): () => void {
+    const dispose = this.ctx.effect(function* (this: LlmRuntime) {
+      if (settingsNs.length === 0) {
+        throw new LlmError('model auto-configuration needs a non-empty settings namespace', 'INVALID_AUTO_CONFIG')
+      }
+      if (this.autoConfigurations.has(settingsNs)) {
+        throw new LlmError(
+          `model auto-configuration for "${settingsNs}" is already registered`,
+          'DUPLICATE_AUTO_CONFIG',
+        )
+      }
+      this.autoConfigurations.set(settingsNs, configure)
+      yield () => {
+        this.autoConfigurations.delete(settingsNs)
+      }
+    }.bind(this), 'llm.registerModelAutoConfiguration()')
+    return () => void dispose()
+  }
+
+  /**
+   * Reconstitute one stored provider route's model list from facts the route
+   * already owns: its endpoint's listing, its stored credential, and whatever
+   * public catalog the namespace owner consults. Unlike
+   * {@link discoverModels} this is not a draft read — the namespace owner
+   * writes the result into the same profile it read.
+   * @param settingsNs - namespace whose registered auto-configuration serves the route.
+   * @param request - the route to reconfigure.
+   * @param signal - caller cancellation.
+   * @returns what the route's profile now holds.
+   */
+  async autoConfigureModels(
+    settingsNs: string,
+    request: LlmModelAutoConfigRequest,
+    signal?: AbortSignal,
+  ): Promise<LlmModelAutoConfigResult> {
+    const configure = this.autoConfigurations.get(settingsNs)
+    if (configure === undefined) {
+      throw new LlmError(`no model auto-configuration is registered for "${settingsNs}"`, 'NO_AUTO_CONFIG')
+    }
+    if (typeof request.provider !== 'string' || request.provider.length === 0) {
+      throw new LlmError('model auto-configuration needs a provider route', 'INVALID_AUTO_CONFIG')
+    }
+    return await configure({ provider: request.provider, ...signal === undefined ? {} : { signal } })
+  }
+
+  /**
+   * Remote adapter for one stored route's auto-configuration.
+   * @param settingsNs - namespace whose registered auto-configuration serves the route.
+   * @param request - the route to reconfigure.
+   * @param signal - caller cancellation supplied by the Remote carrier.
+   * @returns what the route's profile now holds.
+   * @throws RemoteError with `llm/model-auto-configure-rejected` when auto-configuration refuses or fails.
+   */
+  @Remote('autoConfigureModels')
+  async remoteAutoConfigureModels(
+    settingsNs: string,
+    request: LlmModelAutoConfigRequest,
+    signal: AbortSignal,
+  ): Promise<LlmModelAutoConfigResult> {
+    try {
+      return await this.autoConfigureModels(settingsNs, request, signal)
+    } catch (error: unknown) {
+      throw new RemoteError(
+        'llm/model-auto-configure-rejected',
+        error instanceof Error ? error.message : String(error),
+        { settingsNs, provider: request.provider },
         { cause: error },
       )
     }

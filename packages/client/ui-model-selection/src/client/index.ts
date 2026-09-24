@@ -23,16 +23,20 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconDataOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ModelDirectoryState } from './directory.ts'
+import type { ModelDirectory, ModelDirectoryState } from './directory.ts'
 import { ModelDirectoryResolver } from './service.ts'
-import type { ModelSelectInjected } from './slots.ts'
+import type {
+  AutoConfigureOutcome, AutoConfigureProvider, AutoConfigureProviderList, ModelSelectInjected,
+} from './slots.ts'
 import { ModelSelect } from './ModelSelect.tsx'
 import { en, zh, type ModelKey } from './locales.ts'
 
 export { ModelDirectory } from './directory.ts'
 export type { ModelDirectoryState } from './directory.ts'
 export { ModelDirectoryResolver } from './service.ts'
-export type { ModelSelectInjected } from './slots.ts'
+export type {
+  AutoConfigureOutcome, AutoConfigureProvider, AutoConfigureProviderList, ModelSelectInjected,
+} from './slots.ts'
 export type { ModelKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -91,23 +95,15 @@ function optionsOf(directory: ModelDirectoryState, t: TranslateNS<'model'>): Sel
 /**
  * Resolve a picked row back to its model selection by matching against the loaded
  * groups (the same data the rows were built from — ids stay opaque).
- * @param state - the session's directory snapshot.
+ * @param directory - the session's directory, which owns the effort rule.
  * @param id - the picked row id.
  * @returns the row's model selection, or undefined for failure rows / stale ids.
  */
-function selectionOf(state: ModelDirectoryState, id: string): ModelSelection | undefined {
-  for (const group of state.groups) {
+function selectionOf(directory: ModelDirectory, id: string): ModelSelection | undefined {
+  for (const group of directory.store.getSnapshot().groups) {
     for (const model of group.models) {
       if (rowId(group.id, model.id) !== id) continue
-      const sameRoute = state.current?.provider === group.id && state.current.model === model.id
-      const reasoningEffort = sameRoute
-        ? state.current?.reasoningEffort ?? model.reasoning?.defaultEffort
-        : model.reasoning?.defaultEffort
-      return {
-        provider: group.id,
-        model: model.id,
-        ...reasoningEffort === undefined ? {} : { reasoningEffort },
-      }
+      return directory.selectionFor(group, model)
     }
   }
   return undefined
@@ -117,7 +113,7 @@ function selectionOf(state: ModelDirectoryState, id: string): ModelSelection | u
 const NS = 'model'
 
 /** Required services: the contribution registry, the seat's slot registry, locale, and the service's own faces. */
-export const inject = ['commandUi', 'locale', 'sessions', 'slots', 'remote', 'remote.session']
+export const inject = ['commandUi', 'locale', 'sessions', 'slots', 'remote', 'remote.llm', 'remote.session']
 
 /**
  * Client plugin body: mount ModelDirectoryResolver, register the `model` dictionaries,
@@ -160,7 +156,7 @@ export function apply(ctx: ClientContext): void {
             throw new Error('model selection is unavailable for addressed subagent sessions')
           }
           const directory = models.directoryFor(session.sessionId)
-          const selection = selectionOf(directory.store.getSnapshot(), option.id)
+          const selection = selectionOf(directory, option.id)
           if (selection === undefined) {
             throw new Error('this provider\'s catalog failed to load — pick a model from a loaded group')
           }
@@ -190,9 +186,43 @@ export function apply(ctx: ClientContext): void {
           load: () => {
             if (available) directory.load().catch(() => { /* surfaced on the store */ })
           },
+          selectionFor: (group, model) => directory.selectionFor(group, model),
           select: (selection: ModelSelection) => available
             ? directory.select(selection)
             : Promise.resolve(undefined),
+          // The action's own directory read is the LLM registry's: which routes
+          // it offers, and which of them a namespace owner widened with the
+          // action, are both facts the client cannot derive from the catalog
+          // (a route with no models yet has no catalog group at all).
+          autoConfigurableProviders: async (): Promise<AutoConfigureProviderList> => {
+            const [registered, declared] = await Promise.all([
+              scope.remote.llm.listProviders(),
+              scope.remote.llm.listConfigurableProviders(),
+            ])
+            if (!registered.ok) return { kind: 'failed', message: registered.error.message }
+            if (!declared.ok) return { kind: 'failed', message: declared.error.message }
+            // A route must be live to be reconfigured: its registered profile is
+            // what supplies the endpoint, protocol, and headers the action reads.
+            const live = new Set(registered.value.map(provider => provider.id))
+            return {
+              kind: 'listed',
+              providers: declared.value
+                .filter(entry => entry.autoConfigurable === true && live.has(entry.provider))
+                .map(entry => ({
+                  id: entry.provider,
+                  settingsNs: entry.settingsNs,
+                  name: entry.displayName,
+                })),
+            }
+          },
+          autoConfigure: async (provider: AutoConfigureProvider): Promise<AutoConfigureOutcome> => {
+            const result = await scope.remote.llm.autoConfigureModels(provider.settingsNs, {
+              provider: provider.id,
+            })
+            return result.ok
+              ? { kind: 'configured', models: result.value.models, enriched: result.value.enriched }
+              : { kind: 'failed', message: result.error.message }
+          },
         }
       },
     }, ModelSelect))

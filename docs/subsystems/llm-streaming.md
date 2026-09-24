@@ -499,6 +499,23 @@ interface LlmConfigurableProvider {
    * from outside.
    */
   declared?: boolean
+  /**
+   * Settings field inside this provider's profile whose `false` withdraws the
+   * route from service while the profile stays. A composition-declared provider
+   * is otherwise out of the configuring surface's reach: unsetting a user layer
+   * over a section the composition already declares restores the composition
+   * rather than removing anything. Absent means the profile is the only way to
+   * take the route out, so a surface offers removal as an unset.
+   */
+  disableField?: string
+  /**
+   * Whether this provider's settings namespace offers model auto-configuration
+   * — one action that fills the route's model list from the route's own
+   * endpoint. Only the namespace owner can answer, because the offer is
+   * registered against that namespace rather than against one route; a surface
+   * reads this instead of discovering the refusal by calling.
+   */
+  autoConfigurable?: boolean
   /** Configuration diagnostic for repair; unaffected models may remain serviceable. */
   error?: string
 }
@@ -985,6 +1002,42 @@ async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, sig
  * @throws RemoteError with `llm/model-discovery-rejected` when discovery refuses or fails.
  */
 @Remote('discoverModels') async remoteDiscoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal, ): Promise<LlmDiscoveredModel[]>
+
+/**
+ * Offer to auto-configure stored provider routes on behalf of the settings
+ * namespace this plugin owns, and publish that offer through the namespace's
+ * configurable-provider entries. The operation reads AND writes that
+ * namespace's own section, so it is the namespace owner — not an adapter —
+ * that offers it: only the owner can both reach a route's stored endpoint and
+ * credential and store the models it announced. Disposed with the fiber.
+ * @param settingsNs - the namespace whose profiles this auto-configuration serves.
+ * @param configure - reconfigures one route and reports what it stored.
+ * @returns the disposer that withdraws the offer.
+ */
+registerModelAutoConfiguration( settingsNs: string, configure: (request: LlmModelAutoConfigOperation) => Promise<LlmModelAutoConfigResult>, ): () => void
+
+/**
+ * Reconstitute one stored provider route's model list from facts the route
+ * already owns: its endpoint's listing, its stored credential, and whatever
+ * public catalog the namespace owner consults. Unlike
+ * {@link discoverModels} this is not a draft read — the namespace owner
+ * writes the result into the same profile it read.
+ * @param settingsNs - namespace whose registered auto-configuration serves the route.
+ * @param request - the route to reconfigure.
+ * @param signal - caller cancellation.
+ * @returns what the route's profile now holds.
+ */
+async autoConfigureModels( settingsNs: string, request: LlmModelAutoConfigRequest, signal?: AbortSignal, ): Promise<LlmModelAutoConfigResult>
+
+/**
+ * Remote adapter for one stored route's auto-configuration.
+ * @param settingsNs - namespace whose registered auto-configuration serves the route.
+ * @param request - the route to reconfigure.
+ * @param signal - caller cancellation supplied by the Remote carrier.
+ * @returns what the route's profile now holds.
+ * @throws RemoteError with `llm/model-auto-configure-rejected` when auto-configuration refuses or fails.
+ */
+@Remote('autoConfigureModels') async remoteAutoConfigureModels( settingsNs: string, request: LlmModelAutoConfigRequest, signal: AbortSignal, ): Promise<LlmModelAutoConfigResult>
 
 /**
  * Resolve the retry policy captured when one provider route was registered.

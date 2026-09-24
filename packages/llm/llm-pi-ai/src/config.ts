@@ -226,6 +226,11 @@ export interface Config {
    * and registers them the moment a settings section supplies profiles.
    */
   providers: Volatile<Record<string, PiAiProviderProfile>>
+  /**
+   * Catalog the auto-configuration action enriches a route's listing with.
+   * A deployment behind a mirror or an air gap points this at its own copy.
+   */
+  modelsDevUrl: Volatile<string | undefined>
 }
 
 /** Plain options accepted by the provider resolver. */
@@ -351,6 +356,7 @@ const profile = z.object({
 /** Runtime schema for {@link Config}. */
 export const Config = z.object({
   providers: z.dict(profile).default({}).volatile(),
+  modelsDevUrl: z.string().volatile(),
 })
 
 /**

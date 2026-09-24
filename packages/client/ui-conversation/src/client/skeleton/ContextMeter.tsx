@@ -127,7 +127,6 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
               transform="rotate(-90 7 7)"
             />
           </svg>
-          <span>{reading}</span>
         </button>
       </Tooltip>
       {open && createPortal(

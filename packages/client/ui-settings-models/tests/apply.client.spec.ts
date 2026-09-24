@@ -15,6 +15,7 @@ import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION,
 } from '../src/onboarding-copy.ts'
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
+import { CreateProviderOnboardingDialog } from '../src/client/CreateProviderOnboardingDialog.tsx'
 import { DeepSeekOnboardingDialog } from '../src/client/DeepSeekOnboardingDialog.tsx'
 import { WelcomeNotice } from '../src/client/WelcomeNotice.tsx'
 import type { IndexInjection } from '@deepseek-ai/dsh-host-webserver'
@@ -80,7 +81,7 @@ describe('ui-settings-models apply', () => {
       for (const row of rows) if (row.kind === 'global') vi.stubGlobal(row.name, row.value)
       const plugin = ctx.plugin({ inject: [...inject], apply })
       await plugin.await()
-      expect(slots.entries('settings.onboarding').map(entry => entry.options.id)).toEqual(['welcome-notice', 'deepseek-official'])
+      expect(slots.entries('settings.onboarding').map(entry => entry.options.id)).toEqual(['welcome-notice', 'add-provider', 'deepseek-official'])
       const onboarding = slots.entries('settings.onboarding').find(entry => entry.options.id === 'deepseek-official')!
       expect((onboarding.inject as () => { automatic: boolean })().automatic).toBe(false)
       expect(slots.entries('settings.section').map(entry => entry.options.id)).toEqual(['models'])
@@ -133,11 +134,19 @@ describe('ui-settings-models apply', () => {
     expect(injected.hooks.snapshot).toBe(injected.controller.store)
     expect(typeof injected.operations.writeSettings).toBe('function')
     const onboarding = before.slots.entries('settings.onboarding')
-    expect(onboarding).toHaveLength(2)
+    expect(onboarding).toHaveLength(3)
     expect(onboarding.find(entry => entry.options.id === 'welcome-notice')).toMatchObject({
       component: WelcomeNotice,
       options: { id: 'welcome-notice', order: -100 },
     })
+    const addProvider = onboarding.find(entry => entry.options.id === 'add-provider')!
+    expect(addProvider.component).toBe(CreateProviderOnboardingDialog)
+    expect(addProvider.options).toMatchObject({ id: 'add-provider', order: -1 })
+    const addProviderInjected = (
+      addProvider.inject as unknown as () => import('../src/client/CreateProviderOnboardingDialog.tsx').CreateProviderOnboardingInjected
+    )()
+    expect(addProviderInjected.hooks.models).toBe(injected.controller.store)
+    expect(typeof addProviderInjected.operations.storeCredential).toBe('function')
     const deepSeek = onboarding.find(entry => entry.options.id === 'deepseek-official')!
     expect(deepSeek.component).toBe(DeepSeekOnboardingDialog)
     expect(deepSeek.options).toMatchObject({ id: 'deepseek-official', order: 0 })
@@ -154,7 +163,7 @@ describe('ui-settings-models apply', () => {
     declare(after.slots)
     await Promise.resolve()
     expect(after.slots.entries('settings.section')[0]!.component).toBe(ModelsSection)
-    expect(after.slots.entries('settings.onboarding')).toHaveLength(2)
+    expect(after.slots.entries('settings.onboarding')).toHaveLength(3)
     // The self-inflicted ledger notifications hit the duplicate guard.
     expect(after.slots.entries('settings.section')).toHaveLength(1)
   })
@@ -193,7 +202,7 @@ describe('ui-settings-models apply', () => {
     declare(b.slots)
     await Promise.resolve()
     expect(b.slots.entries('settings.section')[0]!.component).toBe(ModelsSection)
-    expect(b.slots.entries('settings.onboarding')).toHaveLength(2)
+    expect(b.slots.entries('settings.onboarding')).toHaveLength(3)
     // The locale path also recovers through the same ledger re-check.
     b.locale.setLocale('en')
     expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('Models')

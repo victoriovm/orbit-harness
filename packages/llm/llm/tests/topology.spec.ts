@@ -315,6 +315,78 @@ describe('model discovery registry', () => {
   })
 })
 
+describe('model auto-configuration registry', () => {
+  it('offers one configuration per settings namespace and disposes with its fiber', async () => {
+    const ctx = await setup()
+    const configure = vi.fn(() => Promise.resolve({ provider: 'acme', models: 3, enriched: 2 }))
+
+    const dispose = ctx.llm.registerModelAutoConfiguration('llm-example', configure)
+    await expect(ctx.llm.autoConfigureModels('llm-example', { provider: 'acme' }))
+      .resolves.toEqual({ provider: 'acme', models: 3, enriched: 2 })
+    expect(configure).toHaveBeenCalledWith({ provider: 'acme' })
+
+    // Disposal is observed through the offer itself, which is the only thing
+    // the registration ever produced.
+    dispose()
+    await expect(ctx.llm.autoConfigureModels('llm-example', { provider: 'acme' }))
+      .rejects.toThrow(/no model auto-configuration is registered/)
+  })
+
+  it('carries caller cancellation to the namespace owner', async () => {
+    const ctx = await setup()
+    const configure = vi.fn(() => Promise.resolve({ provider: 'acme', models: 0, enriched: 0 }))
+    ctx.llm.registerModelAutoConfiguration('llm-example', configure)
+    const signal = new AbortController().signal
+
+    await ctx.llm.autoConfigureModels('llm-example', { provider: 'acme' }, signal)
+    expect(configure).toHaveBeenCalledWith({ provider: 'acme', signal })
+  })
+
+  it('rejects an unnamed namespace, a second registration, and a route nobody named', async () => {
+    const ctx = await setup()
+    const configure = (): Promise<never> => Promise.reject(new Error('never called'))
+
+    expect(() => ctx.llm.registerModelAutoConfiguration('', configure)).toThrow(/non-empty settings namespace/)
+    ctx.llm.registerModelAutoConfiguration('llm-example', configure)
+    expect(() => ctx.llm.registerModelAutoConfiguration('llm-example', configure)).toThrow(/already registered/)
+
+    await expect(ctx.llm.autoConfigureModels('llm-absent', { provider: 'acme' }))
+      .rejects.toMatchObject({ code: 'NO_AUTO_CONFIG' })
+    await expect(ctx.llm.autoConfigureModels('llm-example', { provider: '' }))
+      .rejects.toMatchObject({ code: 'INVALID_AUTO_CONFIG' })
+    // The wire admits any JSON, so a payload that is not a route at all is
+    // refused by the same check rather than reaching the owner as `undefined`.
+    await expect(ctx.llm.autoConfigureModels('llm-example', { provider: 5 as unknown as string }))
+      .rejects.toMatchObject({ code: 'INVALID_AUTO_CONFIG' })
+  })
+
+  it('maps a refused configuration onto the Remote failure, with and without an Error', async () => {
+    const ctx = await setup()
+    const configure = vi.fn()
+      .mockResolvedValueOnce({ provider: 'acme', models: 12, enriched: 9 })
+      .mockRejectedValueOnce(new Error('endpoint refused'))
+      .mockRejectedValueOnce('provider refused')
+    ctx.llm.registerModelAutoConfiguration('llm-example', configure)
+    const signal = new AbortController().signal
+
+    await expect(ctx.llm.remoteAutoConfigureModels('llm-example', { provider: 'acme' }, signal))
+      .resolves.toEqual({ provider: 'acme', models: 12, enriched: 9 })
+
+    await expect(ctx.llm.remoteAutoConfigureModels('llm-example', { provider: 'acme' }, signal))
+      .rejects.toMatchObject({
+        code: 'llm/model-auto-configure-rejected',
+        message: 'endpoint refused',
+        details: { settingsNs: 'llm-example', provider: 'acme' },
+      })
+    await expect(ctx.llm.remoteAutoConfigureModels('llm-example', { provider: 'acme' }, signal))
+      .rejects.toMatchObject({
+        code: 'llm/model-auto-configure-rejected',
+        message: 'provider refused',
+        details: { settingsNs: 'llm-example', provider: 'acme' },
+      })
+  })
+})
+
 describe('imageRequestPricing resolution', () => {
   it('resolves the owning adapter declaration and degrades everywhere else to undefined', async () => {
     const ctx = await setup()

@@ -1731,7 +1731,7 @@ it('lets a toolbar activity replace accessories without replacing the draft edit
   expect(view.getByRole('button', { name: 'model choice' })).toBeTruthy()
 })
 
-it('places context usage below the composer and hides it until the activity closes', () => {
+it('places context usage inside the tools row and hides it until the activity closes', () => {
   const { view } = bench({ draft: 'draft', contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 },
     activityEntry: owner => <>
       <button onClick={() => { owner.onActiveChange(true) }}>microphone</button>
@@ -1740,9 +1740,16 @@ it('places context usage below the composer and hides it until the activity clos
   })
   const meter = view.getByRole('button', { name: '上下文已用 25%' })
   const microphone = view.getByRole('button', { name: 'microphone' })
-  expect(microphone.compareDocumentPosition(meter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  // The ContextMeter moved inside .tools (out of the dock), so it now precedes
+  // the activity slot instead of following below the composer.
+  expect(meter.compareDocumentPosition(microphone) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   fireEvent.click(meter)
   expect(view.getByRole('dialog', { name: '上下文已用' })).toBeTruthy()
+  // The meter now lives inside .tools (hidden, not unmounted, while the
+  // activity is open), so its portaled panel outlives the hide: dismiss it
+  // explicitly before expanding the activity.
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(view.queryByRole('dialog', { name: '上下文已用' })).toBeNull()
   fireEvent.click(microphone)
   expect(view.queryByRole('dialog', { name: '上下文已用' })).toBeNull()
   expect(view.queryByRole('button', { name: '上下文已用 25%' })).toBeNull()

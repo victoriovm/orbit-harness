@@ -1,8 +1,9 @@
 /**
  * Models settings and product-onboarding plugin, browser half. It registers
- * the Models page plus the ordered internal-testing and official-DeepSeek
- * onboarding dialogs, whose UI shares this package's modal wrapper. The Host
- * settings and credential contracts stay behind their existing wire APIs.
+ * the Models page plus the ordered internal-testing, generic add-provider,
+ * and official-DeepSeek onboarding dialogs, whose UI shares this package's
+ * modal wrapper. The Host settings and credential contracts stay behind
+ * their existing wire APIs.
  * Export discipline:
  * packages/client/AGENTS.md.
  */
@@ -17,6 +18,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { ModelsSection } from './ModelsSection.tsx'
 import type { ModelsSectionInjected } from './ModelsSection.tsx'
+import { CreateProviderOnboardingDialog } from './CreateProviderOnboardingDialog.tsx'
+import type { CreateProviderOnboardingInjected } from './CreateProviderOnboardingDialog.tsx'
 import { DeepSeekOnboardingDialog } from './DeepSeekOnboardingDialog.tsx'
 import type { DeepSeekOnboardingInjected } from './DeepSeekOnboardingDialog.tsx'
 import { WelcomeNotice } from './WelcomeNotice.tsx'
@@ -104,6 +107,12 @@ export function apply(ctx: ClientContext): void {
     schema,
     t,
   })
+  const createProviderOnboardingInjected = (): CreateProviderOnboardingInjected => ({
+    controller,
+    hooks: { models: controller.store },
+    operations,
+    t,
+  })
   // The scope's own memory mode is what keeps a remote browser process-local,
   // so the store needs no isLoopback branch of its own.
   const welcomeController = new WelcomeNoticeStore(ctx.configForms.get<Record<string, unknown>>(WELCOME_NOTICE_SETTINGS_NAMESPACE))
@@ -149,6 +158,12 @@ export function apply(ctx: ClientContext): void {
     order: -100,
     inject: welcomeInjected,
   }, WelcomeNotice))
+  ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
+    name: 'settings.onboarding',
+    id: 'add-provider',
+    order: -1,
+    inject: createProviderOnboardingInjected,
+  }, CreateProviderOnboardingDialog))
   ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
     name: 'settings.onboarding',
     id: 'deepseek-official',

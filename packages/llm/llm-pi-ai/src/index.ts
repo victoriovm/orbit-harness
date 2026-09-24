@@ -66,11 +66,13 @@ import type {} from '@deepseek-ai/dsh-fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { PiAiAdapter } from './adapter.ts'
 import { authContextFrom, credentialStoreFrom } from './auth.ts'
+import { buildAutoConfiguredRoute } from './auto-config.ts'
 import { catalogProviderIds } from './catalog.ts'
 import { assertServiceable, Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
-import { discoverModels } from './discovery.ts'
+import { discoverModels, hasReadableListing } from './discovery.ts'
 import type { StoredModelDiscoveryProfile } from './discovery.ts'
+import { DEFAULT_MODELS_DEV_URL, fetchModelsDevCatalog } from './models-dev.ts'
 import { registerPiAiFlows } from './login.ts'
 
 export { PiAiAdapter } from './adapter.ts'
@@ -114,20 +116,43 @@ function registrationFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderPro
 }
 
 /**
+ * Whether one route can have its model list rebuilt from its own endpoint. The
+ * action needs an endpoint AND a protocol: a route that declares neither, or
+ * only a baseURL, is served from the installed catalog, whose entries carry
+ * better capacities than a listing reports, so there is nothing to rebuild.
+ * @param profile - the route's resolved profile, when it has one.
+ * @returns whether the auto-configuration action applies to that route.
+ */
+function canAutoConfigure(profile: ResolvedPiAiProviderProfile | undefined): boolean {
+  if (profile?.baseURL === undefined || profile.baseURL.length === 0) return false
+  return profile.api !== undefined && hasReadableListing(profile.api)
+}
+
+/**
  * The configurable-provider directory: every installed catalog route, plus
  * every route the current profiles declare. A hand-declared route has no
  * catalog entry, so without this union it would have no settings address and
  * configuration surfaces could neither show nor edit it.
  * @param profiles - the currently resolved provider profiles.
+ * @param settingsNs - the settings namespace owning this instance's section.
+ * @param offersAutoConfiguration - whether this instance registered the
+ *   auto-configuration action at all; without a mounted settings seam there is
+ *   nowhere for it to store what it reads.
  * @returns the directory entries in catalog order, declared routes last.
  */
 function directoryEntries(
   profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>,
   settingsNs: string,
+  offersAutoConfiguration: boolean,
 ): LlmConfigurableProvider[] {
   const catalog = new Set(catalogProviderIds())
   const entries = new Map<string, LlmConfigurableProvider>()
-  const declare = (provider: string, displayName: string, error?: string): void => {
+  const declare = (
+    provider: string,
+    displayName: string,
+    profile?: ResolvedPiAiProviderProfile,
+    error?: string,
+  ): void => {
     entries.set(provider, {
       provider,
       displayName,
@@ -137,11 +162,12 @@ function directoryEntries(
       // narrowing a shipped provider's models stores a profile too, and that
       // route is still one pi-ai knows.
       declared: !catalog.has(provider),
+      ...offersAutoConfiguration && canAutoConfigure(profile) ? { autoConfigurable: true } : {},
       ...error === undefined ? {} : { error },
     })
   }
   for (const provider of catalog) declare(provider, provider)
-  for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError)
+  for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile, profile.catalogError)
   return [...entries.values()]
 }
 
@@ -238,8 +264,11 @@ export function apply(ctx: Context, config: Config): void {
   // profiles appear, and leave with them.
   let directory: DirectoryRegistrationHandle | undefined
   let directoryFacts: unknown
+  // Set once the settings seam below mounts: until a namespace can be stored,
+  // no directory entry may advertise an action that would have nowhere to write.
+  let offersAutoConfiguration = false
   const ensureDirectory = (): void => {
-    const entries = directoryEntries(profiles(), settingsNs)
+    const entries = directoryEntries(profiles(), settingsNs, offersAutoConfiguration)
     if (deepEqualJson(entries, directoryFacts)) return
     // Atomic replace, never dispose-then-register: a route another adapter
     // family already declares (a profile keyed `deepseek-official`) would
@@ -306,6 +335,47 @@ export function apply(ctx: Context, config: Config): void {
     registeredFacts = facts
   }
   ensureRegistrationFacts()
+
+  ctx.inject(['settings'], (settingsCtx) => {
+    // One action rebuilds a route's model list from the route's own endpoint:
+    // the profile supplies the endpoint, protocol, and headers, the credential
+    // seam supplies the key, and the catalog supplies what a listing omits.
+    // Offered from here because this is where the namespace that stores the
+    // result is owned; a composition without the settings seam has no
+    // configuration surface for the action to serve either.
+    settingsCtx.llm.registerModelAutoConfiguration(settingsNs, async ({ provider, signal }) => {
+      const profile = profiles().get(provider)
+      if (profile === undefined) {
+        throw new LlmError(
+          `llm-pi-ai: provider route "${provider}" is not registered, so it has no endpoint to read models from`,
+          'AUTO_CONFIG_UNAVAILABLE',
+        )
+      }
+      const catalog = await fetchModelsDevCatalog(config.modelsDevUrl.get() ?? DEFAULT_MODELS_DEV_URL, signal)
+      const built = await buildAutoConfiguredRoute({
+        // The resolved profile is the route description the builder reads:
+        // endpoint, protocol, and deployment headers, with the credential
+        // resolved through the seam below rather than read off the profile.
+        route: profile,
+        resolveApiKey: () => resolveApiKey(provider, profile),
+        catalog,
+        ...signal === undefined ? {} : { signal },
+      })
+      await settingsCtx.settings.mutate(settingsNs, [
+        { op: 'set', path: ['providers', provider, 'models'], value: built.models },
+        ...built.reasoning === undefined ? [] : [{
+          op: 'set' as const,
+          path: ['providers', provider, 'reasoning'],
+          value: built.reasoning,
+        }],
+      ], undefined)
+      return { provider, models: built.models.length, enriched: built.enriched }
+    })
+    offersAutoConfiguration = true
+    // The directory facts now carry the action, so the entries are re-published
+    // before the volatile watcher below can observe them itself.
+    ensureDirectory()
+  })
 
   ctx.on('loader/volatile-update', () => {
     try { ensureRegistrationFacts(); ensureDirectory() }

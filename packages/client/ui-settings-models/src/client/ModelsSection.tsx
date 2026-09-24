@@ -92,6 +92,12 @@ interface EditorTarget extends ProviderIdentity {
   credentialRef?: string
   /** The adapter reports this route as one it does not ship (see {@link ProviderEditorProps.declared}). */
   declared?: boolean
+  /**
+   * Settings field whose false withdraws this provider's route. Present for a
+   * provider the composition declares: its profile outlives the user layer, so
+   * removal flips the switch instead of unsetting the profile.
+   */
+  disableField?: string
 }
 
 /** A dormant directory row the add card can adopt, with its registered namespace. */
@@ -141,15 +147,49 @@ function renderProviderEditor({ target, ...props }: ProviderEditorRenderProps): 
 export async function removeProviderProfile(
   operations: ModelsOperations,
   controller: ModelsSettingsStore,
-  target: { settingsNs: string; settingsPath: readonly string[]; credentialRef?: string },
+  target: {
+    settingsNs: string
+    settingsPath: readonly string[]
+    credentialRef?: string
+    disableField?: string
+  },
 ): Promise<string | undefined> {
-  if (target.credentialRef !== undefined) {
+  // A provider the composition declares keeps its profile, so removal flips its
+  // own switch: the route stops serving and leaves the picker, and the stored
+  // key stays for the day the user turns it back on.
+  const ops = target.disableField === undefined
+    ? [{ op: 'unset' as const, path: [...target.settingsPath] }]
+    : [{ op: 'set' as const, path: [...target.settingsPath, target.disableField], value: false }]
+  if (target.disableField === undefined && target.credentialRef !== undefined) {
     const credential = await operations.removeCredential(target.credentialRef)
     if (credential !== undefined) return credential
   }
   const written = await operations.writeSettings(
     target.settingsNs,
-    [{ op: 'unset', path: [...target.settingsPath] }],
+    ops,
+    undefined,
+  )
+  if (written.kind !== 'written') return written.message
+  await controller.load()
+  return undefined
+}
+
+/**
+ * Put a switched-off provider back in service by clearing the switch, so the
+ * profile returns to the composition's own answer for it.
+ * @param operations - the page's Host operations.
+ * @param controller - the page store to refresh.
+ * @param target - the provider's settings address and its switch field.
+ * @returns the failure message, or undefined once the write and reload landed.
+ */
+export async function enableProviderProfile(
+  operations: ModelsOperations,
+  controller: ModelsSettingsStore,
+  target: { settingsNs: string; settingsPath: readonly string[]; disableField: string },
+): Promise<string | undefined> {
+  const written = await operations.writeSettings(
+    target.settingsNs,
+    [{ op: 'unset', path: [...target.settingsPath, target.disableField] }],
     undefined,
   )
   if (written.kind !== 'written') return written.message
@@ -198,9 +238,20 @@ function targetOf(row: ProviderRow): EditorTarget {
     settingsNs: row.entry.settingsNs,
     settingsPath: row.entry.settingsPath,
     ...credentialRef === undefined ? {} : { credentialRef },
+    ...row.entry.disableField === undefined ? {} : { disableField: row.entry.disableField },
     // Only declared routes may expose route-owned fields.
     ...row.entry.declared === true ? { declared: true } : {},
   }
+}
+
+/**
+ * Whether the page can take this provider out of service at all: a user-added
+ * profile by unsetting it, a composition-declared one by its own switch.
+ * @param row - the joined provider row.
+ * @returns whether the row offers a removal action.
+ */
+function canRemove(row: ProviderRow): boolean {
+  return row.removable || row.entry.disableField !== undefined
 }
 
 /** Stable visible and accessible identity for one provider target. */
@@ -245,6 +296,9 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   const [deleteTarget, setDeleteTarget] = useState<EditorTarget | undefined>(undefined)
   const [deleting, setDeleting] = useState(false)
   const [deleteFailure, setDeleteFailure] = useState<string | undefined>(undefined)
+  /** Turn-on failure by provider; the row itself carries the message, since that
+      action has no dialog of its own. */
+  const [enableFailure, setEnableFailure] = useState<{ provider: string; message: string } | undefined>(undefined)
   const [savedTarget, setSavedTarget] = useState<ProviderIdentity | undefined>(undefined)
   const [dismissedSetup, setDismissedSetup] = useState<ReadonlySet<string>>(() => new Set())
 
@@ -290,6 +344,19 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
     if (deleting) return
     setDeleteTarget(undefined)
     setDeleteFailure(undefined)
+  }
+
+  /** Clear a provider's switch, returning its route to service. */
+  const turnOn = (target: EditorTarget): void => {
+    const disableField = target.disableField
+    /* v8 ignore next -- the action only renders on a row carrying its switch */
+    if (disableField === undefined) return
+    setEnableFailure(undefined)
+    void enableProviderProfile(operations, controller, { ...target, disableField })
+      .then((failure) => {
+        if (failure === undefined) return
+        setEnableFailure({ provider: target.provider, message: failure })
+      })
   }
 
   const confirmDelete = (): void => {
@@ -442,6 +509,9 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   {row.entry.declared === true
                     ? <span className={styles['rowTag']}>{t('customTag')}</span>
                     : null}
+                  {row.disabled
+                    ? <span className={styles['rowTag']}>{t('providerOff')}</span>
+                    : null}
                   {credentialConfigured
                     ? (
                       <span
@@ -478,26 +548,41 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   >
                     {t('edit')}
                   </button>
-                  {row.removable
+                  {row.disabled
                     ? (
                       <button
                         type="button"
-                        className={styles['dangerButton']}
-                        aria-label={providerCopy(t('removeProvider'), target)}
+                        className={styles['secondaryButton']}
+                        aria-label={providerCopy(t('enableProvider'), target)}
                         disabled={!state.writable}
-                        onClick={() => {
-                          setSavedTarget(undefined)
-                          setDeleteFailure(undefined)
-                          setDeleteTarget(target)
-                        }}
+                        onClick={() => { turnOn(target) }}
                       >
-                        {t('remove')}
+                        {t('enable')}
                       </button>
                     )
-                    : null}
+                    : canRemove(row)
+                      ? (
+                        <button
+                          type="button"
+                          className={styles['dangerButton']}
+                          aria-label={providerCopy(t('removeProvider'), target)}
+                          disabled={!state.writable}
+                          onClick={() => {
+                            setSavedTarget(undefined)
+                            setDeleteFailure(undefined)
+                            setDeleteTarget(target)
+                          }}
+                        >
+                          {t('remove')}
+                        </button>
+                      )
+                      : null}
                 </span>
               </div>
               {error}
+              {enableFailure?.provider === row.entry.provider
+                ? <p role="alert" className={styles['error']}>{enableFailure.message}</p>
+                : null}
               {renderSlot(
                 'settings.models.provider-card',
                 { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) },
@@ -668,14 +753,21 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
       <Modal
         open={deleteTarget !== undefined}
         onClose={closeDelete}
-        title={deleteTarget === undefined ? '' : providerCopy(t('deleteTitle'), deleteTarget)}
+        title={deleteTarget === undefined
+          ? ''
+          : providerCopy(
+            deleteTarget.disableField === undefined ? t('deleteTitle') : t('disableTitle'),
+            deleteTarget,
+          )}
         closeLabel={t('close')}
         description={deleteTarget === undefined
           ? ''
           : providerCopy(
-            deleteTarget.credentialRef === undefined
-              ? t('deleteDescription')
-              : t('deleteDescriptionWithCredential'),
+            deleteTarget.disableField !== undefined
+              ? t('disableDescription')
+              : deleteTarget.credentialRef === undefined
+                ? t('deleteDescription')
+                : t('deleteDescriptionWithCredential'),
             deleteTarget,
           )}
         className={styles['deleteDialog'] as string}
@@ -692,7 +784,12 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
             >
               {deleteTarget === undefined
                 ? ''
-                : providerCopy(deleting ? t('deleting') : t('deleteConfirm'), deleteTarget)}
+                : providerCopy(
+                  deleting
+                    ? t('deleting')
+                    : deleteTarget.disableField === undefined ? t('deleteConfirm') : t('disableConfirm'),
+                  deleteTarget,
+                )}
             </Button>
           </>
         )}

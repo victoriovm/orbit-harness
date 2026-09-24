@@ -1,0 +1,31 @@
+/* First-run provider step: the sentence that says what the form is for, then
+   the three facts it asks for. The fields and the action row reuse the Models
+   page's own card styling, so a provider created here looks like one created
+   there. */
+.description {
+  margin: 0;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+/* The action row closes the form rather than continuing it: the line above it
+   is a sentence about the key field, and the row needs more air than the
+   fields' own rhythm to read as the end of the form. The Models cards get this
+   from their container's gap; this dialog has no such container. */
+.actions {
+  margin-top: 20px;
+}
+
+@media (max-width: 560px) {
+  .form {
+    margin-top: 20px;
+  }
+}

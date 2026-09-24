@@ -264,6 +264,23 @@ export interface LlmConfigurableProvider {
    * from outside.
    */
   declared?: boolean
+  /**
+   * Settings field inside this provider's profile whose `false` withdraws the
+   * route from service while the profile stays. A composition-declared provider
+   * is otherwise out of the configuring surface's reach: unsetting a user layer
+   * over a section the composition already declares restores the composition
+   * rather than removing anything. Absent means the profile is the only way to
+   * take the route out, so a surface offers removal as an unset.
+   */
+  disableField?: string
+  /**
+   * Whether this provider's settings namespace offers model auto-configuration
+   * — one action that fills the route's model list from the route's own
+   * endpoint. Only the namespace owner can answer, because the offer is
+   * registered against that namespace rather than against one route; a surface
+   * reads this instead of discovering the refusal by calling.
+   */
+  autoConfigurable?: boolean
   /** Configuration diagnostic for repair; unaffected models may remain serviceable. */
   error?: string
 }
@@ -299,12 +316,52 @@ export interface LlmModelDiscoveryOperation extends LlmModelDiscoveryRequest {
   signal?: AbortSignal
 }
 
+/**
+ * One auto-configuration request: fill a stored route's model list from facts
+ * the route already owns. Unlike a discovery request this names a route and
+ * nothing else — the endpoint, protocol, and credential come from the stored
+ * profile, which is what lets the operation write the result back to the same
+ * profile it read.
+ */
+export interface LlmModelAutoConfigRequest {
+  /** Registered provider route whose stored profile is reconfigured. */
+  provider: string
+}
+
+/** What one model auto-configuration wrote into the route's stored profile. */
+export interface LlmModelAutoConfigResult {
+  /** The reconfigured route. */
+  provider: string
+  /** How many models the endpoint disclosed and the write stored. */
+  models: number
+  /**
+   * How many of those a public catalog described, so their names, capacities,
+   * and reasoning levels came from it rather than from the endpoint's own
+   * listing. The rest are configured from what the endpoint reported, which is
+   * enough to call each model but may be no more than an id — a surface
+   * reporting the outcome can say how much of it was enriched without
+   * inspecting the stored profile.
+   */
+  enriched: number
+}
+
+/** Provider-side auto-configuration request with operation-local cancellation attached. */
+export interface LlmModelAutoConfigOperation extends LlmModelAutoConfigRequest {
+  /** Caller cancellation; implementations must settle promptly after it aborts. */
+  signal?: AbortSignal
+}
+
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
     /** A draft provider interrogation refused or failed. */
     'llm/model-discovery-rejected': {
       readonly settingsNs: string
       readonly baseURL?: string
+    }
+    /** A stored route's model auto-configuration refused or failed. */
+    'llm/model-auto-configure-rejected': {
+      readonly settingsNs: string
+      readonly provider: string
     }
   }
 }

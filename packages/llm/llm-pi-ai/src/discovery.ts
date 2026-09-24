@@ -42,6 +42,15 @@ const LISTABLE_PROTOCOLS: ReadonlySet<string> = new Set([
   'openai-responses',
 ])
 
+/**
+ * Whether this build can read one protocol's model-listing endpoint at all.
+ * @param api - the wire protocol a route declares.
+ * @returns whether interrogating that route is possible, whatever the endpoint then answers.
+ */
+export function hasReadableListing(api: string): boolean {
+  return LISTABLE_PROTOCOLS.has(api)
+}
+
 /** Stable API version required by Anthropic's model-listing endpoint. */
 const ANTHROPIC_VERSION = '2023-06-01'
 
@@ -69,7 +78,7 @@ interface ListingTopProvider {
 }
 
 /** One entry of a supported `GET /models` reply. */
-interface ListingEntry {
+export interface ListingEntry {
   id?: unknown
   /** Common gateway extensions; absent from the official listings. */
   name?: unknown
@@ -82,9 +91,21 @@ interface ListingEntry {
   maxOutputTokens?: unknown
   max_tokens?: unknown
   max_output_tokens?: unknown
+  max_completion_tokens?: unknown
   maxTokens?: unknown
   limit?: ListingLimit | null
   top_provider?: ListingTopProvider | null
+  /** Router extension describing what the model itself accepts. */
+  capabilities?: unknown
+  /** Router extension naming the vendor a model belongs to. */
+  owned_by?: unknown
+  /** Router extension carrying that vendor's human-readable name. */
+  owned_by_name?: unknown
+  /**
+   * Router extension that withdraws the entry's own context capacity: the
+   * listing still reports one, and the router itself says it is wrong.
+   */
+  context_misconfig?: unknown
 }
 
 /** A positive integer field of a listing entry, or `undefined` when absent or unusable. */
@@ -126,12 +147,16 @@ function listingUrl(baseURL: string, api: string): string {
  * is checked first so an honest server is turned away without transferring
  * anything; the accumulated total is what actually enforces the bound, because
  * a server that under-declares (or streams) tells us nothing up front.
+ * @param response - the settled reply to drain.
+ * @param url - the URL the reply came from, for the refusal's diagnostic.
+ * @param maxBytes - the ceiling that reply is allowed to reach.
+ * @returns the decoded body.
  */
-async function readBounded(response: Response, url: string): Promise<string> {
+export async function readBounded(response: Response, url: string, maxBytes: number): Promise<string> {
   const oversized = (): LlmError =>
-    new LlmError(`${url} answered with more than ${MAX_RESPONSE_BYTES} bytes`, 'DISCOVERY_FAILED')
+    new LlmError(`${url} answered with more than ${maxBytes} bytes`, 'DISCOVERY_FAILED')
   const declared = Number(response.headers.get('content-length') ?? Number.NaN)
-  if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
+  if (Number.isFinite(declared) && declared > maxBytes) {
     await response.body?.cancel()
     throw oversized()
   }
@@ -145,7 +170,7 @@ async function readBounded(response: Response, url: string): Promise<string> {
       const { done, value } = await reader.read()
       if (done) break
       total += value.byteLength
-      if (total > MAX_RESPONSE_BYTES) throw oversized()
+      if (total > maxBytes) throw oversized()
       chunks.push(value)
     }
   } finally {
@@ -164,40 +189,55 @@ async function readBounded(response: Response, url: string): Promise<string> {
   return new TextDecoder().decode(body)
 }
 
+/** One listed model as the endpoint spelled it: a map key, or the entry itself. */
+export interface ListingRecord {
+  /** Property key of an enriched `models` map; absent for a `data` array entry. */
+  readonly key?: string
+  /** The entry exactly as the reply carried it. */
+  readonly raw: unknown
+}
+
 /**
- * Read one supported model-listing reply. The standard `data` array takes
- * precedence when both supported formats are present. An enriched `models`
- * map uses each property key as the endpoint-facing id; its nested `id` is
- * only a fallback for an empty key because gateways may put a canonical model
- * identity there instead of the alias they accept on requests. Only
- * object-valued map entries are models; primitive properties are ignored
+ * Normalize the entries of one supported model-listing reply. The standard
+ * `data` array takes precedence when both supported formats are present. An
+ * enriched `models` map uses each property key as the endpoint-facing id; its
+ * nested `id` is only a fallback for an empty key because gateways may put a
+ * canonical model identity there instead of the alias they accept on requests.
+ * Only object-valued map entries are models; primitive properties are ignored
  * because they may be directory metadata rather than model records.
- *
- * Entries without a usable id are skipped rather than failing the whole
- * interrogation: a single malformed row should not deny the user the rest of
- * a working endpoint's catalog. Missing names fall back to the adopted id so
- * the Web form receives a complete human-readable row.
+ * @param body - the parsed reply.
+ * @returns the entries in reply order.
+ * @throws LlmError when neither supported format is present.
  */
-function readListing(body: unknown): LlmDiscoveredModel[] {
+export function listingRecords(body: unknown): ListingRecord[] {
   const listing = body as { data?: unknown; models?: unknown } | null
   const data = listing?.data
-  let listed: { readonly key?: string; readonly raw: unknown }[]
   if (Array.isArray(data)) {
     const rows = data as readonly unknown[]
-    listed = rows.map(raw => ({ raw }))
-  } else {
-    const models = listing?.models
-    if (models === null || typeof models !== 'object' || Array.isArray(models)) {
-      throw new LlmError(
-        'the endpoint\'s model listing has neither a "data" array nor a "models" object; '
-        + 'enter this provider\'s models by hand',
-        'DISCOVERY_FAILED',
-      )
-    }
-    listed = Object.entries(models as Record<string, unknown>)
-      .filter(([, raw]) => raw !== null && typeof raw === 'object' && !Array.isArray(raw))
-      .map(([key, raw]) => ({ key, raw }))
+    return rows.map(raw => ({ raw }))
   }
+  const models = listing?.models
+  if (models === null || typeof models !== 'object' || Array.isArray(models)) {
+    throw new LlmError(
+      'the endpoint\'s model listing has neither a "data" array nor a "models" object; '
+      + 'enter this provider\'s models by hand',
+      'DISCOVERY_FAILED',
+    )
+  }
+  return Object.entries(models as Record<string, unknown>)
+    .filter(([, raw]) => raw !== null && typeof raw === 'object' && !Array.isArray(raw))
+    .map(([key, raw]) => ({ key, raw }))
+}
+
+/**
+ * Read one supported model-listing reply. Entries without a usable id are
+ * skipped rather than failing the whole interrogation: a single malformed row
+ * should not deny the user the rest of a working endpoint's catalog. Missing
+ * names fall back to the adopted id so the Web form receives a complete
+ * human-readable row.
+ */
+function readListing(body: unknown): LlmDiscoveredModel[] {
+  const listed = listingRecords(body)
   const models: LlmDiscoveredModel[] = []
   for (const { key, raw } of listed) {
     const entry = raw as ListingEntry | null
@@ -256,6 +296,77 @@ export interface StoredModelDiscoveryProfile {
   readonly resolveApiKey: () => Promise<string | undefined>
 }
 
+/** Endpoint facts one model-listing read needs, with credential and headers already resolved. */
+export interface ModelListingRequest {
+  /** Endpoint to interrogate, exactly as the route profile spells it. */
+  readonly baseURL: string
+  /** Wire protocol the endpoint speaks. */
+  readonly api: string
+  /** Credential to authenticate with; absent probes the endpoint unauthenticated. */
+  readonly apiKey?: string
+  /** Deployment-owned headers configured on the route. */
+  readonly headers?: Readonly<Record<string, string>>
+  /** Caller cancellation. */
+  readonly signal?: AbortSignal
+}
+
+/**
+ * Fetch one endpoint's model listing through its protocol's native listing
+ * path and parse the reply as JSON.
+ * @param request - the endpoint, protocol, and everything to authenticate with.
+ * @returns the parsed reply body.
+ * @throws LlmError when the endpoint refuses, fails, or does not answer with JSON.
+ */
+export async function fetchModelListing(request: ModelListingRequest): Promise<unknown> {
+  const url = listingUrl(request.baseURL, request.api)
+  const apiKey = request.apiKey === undefined ? undefined : usableProbeKey(request.apiKey)
+  let response: Response
+  try {
+    const headers = new Headers(request.headers === undefined ? undefined : Object.entries(request.headers))
+    headers.set('accept', 'application/json')
+    if (request.api === 'anthropic-messages') {
+      headers.set('anthropic-version', ANTHROPIC_VERSION)
+      if (apiKey !== undefined) headers.set('x-api-key', apiKey)
+    } else if (apiKey !== undefined) {
+      headers.set('authorization', `Bearer ${apiKey}`)
+    }
+    for (const [name, value] of Object.entries(attributionHeaders())) headers.set(name, value)
+    response = await fetch(url, {
+      method: 'GET',
+      headers,
+      ...request.signal === undefined ? {} : { signal: request.signal },
+    })
+  } catch (error: unknown) {
+    if (request.signal?.aborted) {
+      throw new LlmError('model listing read aborted by caller', 'ABORTED', { cause: error })
+    }
+    throw new LlmError(`could not reach ${url}`, 'DISCOVERY_FAILED', { cause: error })
+  }
+  if (!response.ok) {
+    throw new LlmError(
+      `${url} answered ${response.status}${response.status === 401 || response.status === 403 ? '; check the API key' : ''}`,
+      'DISCOVERY_FAILED',
+    )
+  }
+  let text: string
+  try {
+    text = await readBounded(response, url, MAX_RESPONSE_BYTES)
+  } catch (error: unknown) {
+    // Cancellation during the body read rejects with the abort reason, which
+    // may be any value; the caller gets the same coded failure it would have
+    // for a cancellation before the request went out.
+    if (request.signal?.aborted) {
+      throw new LlmError('model listing read aborted by caller', 'ABORTED', { cause: error })
+    }
+    throw error
+  }
+  try {
+    return JSON.parse(text)
+  } catch (error: unknown) {
+    throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
+  }
+}
+
 /**
  * Interrogate one draft provider endpoint for the models it advertises.
  * @param request - the endpoint, protocol, and one-shot credential to use.
@@ -304,7 +415,6 @@ export async function discoverModels(
       'DISCOVERY_UNSUPPORTED',
     )
   }
-  const url = listingUrl(request.baseURL, api)
   // A key typed into the form wins: it may replace the stored key that is
   // failing. The stored profile is asked past the catalog and protocol checks,
   // and its credential resolver remains lazy so a typed key cannot fail over a
@@ -312,52 +422,12 @@ export async function discoverModels(
   // deployment-owned Authorization header when neither key exists.
   const stored = storedProfile?.()
   const supplied = request.apiKey ?? await stored?.resolveApiKey()
-  const apiKey = supplied === undefined ? undefined : usableProbeKey(supplied)
-  let response: Response
-  try {
-    const headers = new Headers(stored?.headers === undefined ? undefined : Object.entries(stored.headers))
-    headers.set('accept', 'application/json')
-    if (api === 'anthropic-messages') {
-      headers.set('anthropic-version', ANTHROPIC_VERSION)
-      if (apiKey !== undefined) headers.set('x-api-key', apiKey)
-    } else if (apiKey !== undefined) {
-      headers.set('authorization', `Bearer ${apiKey}`)
-    }
-    for (const [name, value] of Object.entries(attributionHeaders())) headers.set(name, value)
-    response = await fetch(url, {
-      method: 'GET',
-      headers,
-      ...request.signal === undefined ? {} : { signal: request.signal },
-    })
-  } catch (error: unknown) {
-    if (request.signal?.aborted) {
-      throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
-    }
-    throw new LlmError(`could not reach ${url}`, 'DISCOVERY_FAILED', { cause: error })
-  }
-  if (!response.ok) {
-    throw new LlmError(
-      `${url} answered ${response.status}${response.status === 401 || response.status === 403 ? '; check the API key' : ''}`,
-      'DISCOVERY_FAILED',
-    )
-  }
-  let text: string
-  try {
-    text = await readBounded(response, url)
-  } catch (error: unknown) {
-    // Cancellation during the body read rejects with the abort reason, which
-    // may be any value; the caller gets the same coded failure it would have
-    // for a cancellation before the request went out.
-    if (request.signal?.aborted) {
-      throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
-    }
-    throw error
-  }
-  let body: unknown
-  try {
-    body = JSON.parse(text)
-  } catch (error: unknown) {
-    throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
-  }
+  const body = await fetchModelListing({
+    baseURL: request.baseURL,
+    api,
+    ...supplied === undefined ? {} : { apiKey: supplied },
+    ...stored?.headers === undefined ? {} : { headers: stored.headers },
+    ...request.signal === undefined ? {} : { signal: request.signal },
+  })
   return readListing(body)
 }

@@ -58,8 +58,10 @@ type PanelRowProps =
 /** Each panel row subscribes only to its own selection state. */
 function PanelRow({ id, label, wide, usePanelInfo, selectPanel, renderSlot }: PanelRowProps) {
   const active = usePanelInfo(info => info.activePanelId === id)
+  // The entry is an icon in both widths, so its name reaches the pointer
+  // through the tooltip rather than through a label the row no longer draws.
   return (
-    <Tooltip label={label} delayMs={500} disabled={wide}>
+    <Tooltip label={label} delayMs={500}>
       <button
         type="button"
         className={clsx(css.panelRow, active && css.panelActive)}
@@ -70,11 +72,6 @@ function PanelRow({ id, label, wide, usePanelInfo, selectPanel, renderSlot }: Pa
         <span className={css.panelGlyph} aria-hidden="true">
           {renderSlot('sidebar.panellist', { size: wide ? 16 : 18, active }, { only: id })}
         </span>
-        {wide && (
-          <span className={clsx(css.panelTitle, css.wide)}>
-            {label}
-          </span>
-        )}
       </button>
     </Tooltip>
   )
@@ -250,38 +247,42 @@ export function SidebarRoot({
         {!darwinDesktop && toggle}
       </div>
 
-      {/* Expanded, the button carries its own label — tooltip only on the rail. */}
-      <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide} side={captionTooltipSide}>
-        <button
-          type="button"
-          className={css.newSession}
-          aria-label={t('session.new.label')}
-          onClick={() => { startSession() }}
-        >
-          {/* The rail draws Regular: Medium's 1.3px stroke scaled to the rail's
-              larger glyph reads visibly heavier than the neighboring 1px icons. */}
-          {wide
-            ? <IconNewChatOutlineMedium size={14} />
-            : <IconNewChatOutlineRegular size={windowsTitlebar ? 16 : 18} />}
-          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
-        </button>
-      </Tooltip>
+      {/* New Session holds the row and every panel entry rides beside it as an
+          icon square; the rail is one icon wide, so there the two stack. */}
+      <div className={css.controlRow}>
+        {/* Expanded, the button carries its own label — tooltip only on the rail. */}
+        <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide} side={captionTooltipSide}>
+          <button
+            type="button"
+            className={css.newSession}
+            aria-label={t('session.new.label')}
+            onClick={() => { startSession() }}
+          >
+            {/* The rail draws Regular: Medium's 1.3px stroke scaled to the rail's
+                larger glyph reads visibly heavier than the neighboring 1px icons. */}
+            {wide
+              ? <IconNewChatOutlineMedium size={14} />
+              : <IconNewChatOutlineRegular size={windowsTitlebar ? 16 : 18} />}
+            {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
+          </button>
+        </Tooltip>
 
-      {panels.length > 0 && (
-        <nav className={css.panelList} aria-label={t('panels.label')}>
-          {panels.map(({ id, label }) => (
-            <PanelRow
-              key={id}
-              id={id}
-              label={label}
-              wide={wide}
-              usePanelInfo={usePanelInfo}
-              selectPanel={selectPanel}
-              renderSlot={renderSlot}
-            />
-          ))}
-        </nav>
-      )}
+        {panels.length > 0 && (
+          <nav className={css.panelList} aria-label={t('panels.label')}>
+            {panels.map(({ id, label }) => (
+              <PanelRow
+                key={id}
+                id={id}
+                label={label}
+                wide={wide}
+                usePanelInfo={usePanelInfo}
+                selectPanel={selectPanel}
+                renderSlot={renderSlot}
+              />
+            ))}
+          </nav>
+        )}
+      </div>
 
       {/* The browsing region fills the column between the controls and the
           foot in both states; its rail icon column rides the same slot. */}

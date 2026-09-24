@@ -1386,6 +1386,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['RemoteError with `llm/model-discovery-rejected` when discovery refuses or fails.'],
       },
       {
+        signature: 'registerModelAutoConfiguration( settingsNs: string, configure: (request: LlmModelAutoConfigOperation) => Promise<LlmModelAutoConfigResult>, ): () => void',
+        description: 'Offer to auto-configure stored provider routes on behalf of the settings namespace this plugin owns, and publish that offer through the namespace\'s configurable-provider entries. The operation reads AND writes that namespace\'s own section, so it is the namespace owner — not an adapter — that offers it: only the owner can both reach a route\'s stored endpoint and credential and store the models it announced. Disposed with the fiber.',
+        parameters: [{ name: 'settingsNs', description: 'the namespace whose profiles this auto-configuration serves.' }, { name: 'configure', description: 'reconfigures one route and reports what it stored.' }],
+        returns: 'the disposer that withdraws the offer.',
+      },
+      {
+        signature: 'async autoConfigureModels( settingsNs: string, request: LlmModelAutoConfigRequest, signal?: AbortSignal, ): Promise<LlmModelAutoConfigResult>',
+        description: 'Reconstitute one stored provider route\'s model list from facts the route already owns: its endpoint\'s listing, its stored credential, and whatever public catalog the namespace owner consults. Unlike discoverModels this is not a draft read — the namespace owner writes the result into the same profile it read.',
+        parameters: [{ name: 'settingsNs', description: 'namespace whose registered auto-configuration serves the route.' }, { name: 'request', description: 'the route to reconfigure.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'what the route\'s profile now holds.',
+      },
+      {
+        signature: '@Remote(\'autoConfigureModels\') async remoteAutoConfigureModels( settingsNs: string, request: LlmModelAutoConfigRequest, signal: AbortSignal, ): Promise<LlmModelAutoConfigResult>',
+        description: 'Remote adapter for one stored route\'s auto-configuration.',
+        parameters: [{ name: 'settingsNs', description: 'namespace whose registered auto-configuration serves the route.' }, { name: 'request', description: 'the route to reconfigure.' }, { name: 'signal', description: 'caller cancellation supplied by the Remote carrier.' }],
+        returns: 'what the route\'s profile now holds.',
+        throws: ['RemoteError with `llm/model-auto-configure-rejected` when auto-configuration refuses or fails.'],
+      },
+      {
         signature: 'providerRetryPolicy(provider: string): ResolvedRetryPolicy',
         description: 'Resolve the retry policy captured when one provider route was registered.',
         parameters: [{ name: 'provider', description: 'registered provider route to inspect.' }],
@@ -5331,7 +5350,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmConfigurableProvider',
-    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n    declared?: boolean;\n    error?: string;\n}',
+    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n    declared?: boolean;\n    disableField?: string;\n    autoConfigurable?: boolean;\n    error?: string;\n}',
   },
   {
     name: 'LlmDiscoveredModel',
@@ -5348,6 +5367,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LlmImageRequestPricing',
     declaration: 'export interface LlmImageRequestPricing {\n    priceImages(images: readonly ImageBlock[]): readonly LlmImageRequestPrice[];\n}',
+  },
+  {
+    name: 'LlmModelAutoConfigOperation',
+    declaration: 'export interface LlmModelAutoConfigOperation extends LlmModelAutoConfigRequest {\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'LlmModelAutoConfigRequest',
+    declaration: 'export interface LlmModelAutoConfigRequest {\n    provider: string;\n}',
+  },
+  {
+    name: 'LlmModelAutoConfigResult',
+    declaration: 'export interface LlmModelAutoConfigResult {\n    provider: string;\n    models: number;\n    enriched: number;\n}',
   },
   {
     name: 'LlmModelContext',
@@ -5379,7 +5410,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmRuntime',
-    declaration: 'export class LlmRuntime extends TypertRemoteService {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    @Remote\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    @Remote\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    @Remote(\'discoverModels\')\n    async remoteDiscoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined;\n    fileRequestText(ref: FileAttachmentRef): string;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>;\n    async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>;\n    stream(options: GenerateOptions) /* …truncated — full shape in source */',
+    declaration: 'export class LlmRuntime extends TypertRemoteService {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    @Remote\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    @Remote\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    @Remote(\'discoverModels\')\n    async remoteDiscoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    registerModelAutoConfiguration(settingsNs: string, configure: (request: LlmModelAutoConfigOperation) => Promise<LlmModelAutoConfigResult>): () => void;\n    async autoConfigureModels(settingsNs: string, request: LlmModelAutoConfigRequest, signal?: AbortSignal): Promise<LlmModelAutoConfigResult>;\n    @Remote(\'autoConfigureModels\')\n    async remoteAutoConfigureModels(settingsNs: string, request: LlmModelAutoConfigRequest, signal: AbortSignal): Promise<LlmModelAutoConfigResult>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    imageRequestPricing(provider: string, model: string): LlmImageRequ /* …truncated — full shape in source */',
   },
   {
     name: 'LocalizedText',

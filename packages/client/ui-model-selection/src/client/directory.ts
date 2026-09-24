@@ -2,16 +2,19 @@
  * Per-session model directory: the ONE state both selection entries share.
  * The /model popup and composer seat combine one shared Host catalog with the
  * Session's durable selection projection, then submit through the same
- * selectModel call. A switch made in either entry updates this shared state.
+ * selectModel call. A switch made in either entry updates this shared state,
+ * and both build the submission from the shared route-to-effort memory, so a
+ * model keeps the level it was last used at.
  */
 import type {
-  ModelCatalogFailure, ModelProviderGroup, ModelSelection, ModelSelectionProjection,
+  ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelSelection, ModelSelectionProjection,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { RemoteResult, TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ModelCatalogDirectory } from './catalog.ts'
+import type { ModelEffortMemory } from './effort-memory.ts'
 
 /** Directory snapshot both entries render from. */
 export interface ModelDirectoryState {
@@ -55,6 +58,7 @@ export class ModelDirectory {
    * @param available - whether this session may use Agent-bound model RPCs.
    * @param catalog - Host-generation catalog shared by every Session.
    * @param projected - durable model selection projected from Session history.
+   * @param efforts - route-to-effort memory shared by every Session.
    */
   constructor(
     private readonly sessions: Pick<TypertClientRemote['session'], 'selectModel'>,
@@ -62,6 +66,7 @@ export class ModelDirectory {
     private readonly available: () => boolean,
     private readonly catalog: ModelCatalogDirectory,
     private readonly projected: ObservableSnapshot<unknown>,
+    private readonly efforts: ModelEffortMemory,
   ) {
     this.unsubscribeCatalog = catalog.store.subscribe(() => { this.syncInputs() })
     this.unsubscribeSelection = projected.subscribe(() => { this.syncInputs() })
@@ -83,12 +88,15 @@ export class ModelDirectory {
    * Select the complete provider/model/reasoning selection. The durable
    * projection frame updates the shared current; failures surface on the store
    * and return with the operation so each entry can present its own failure.
+   * The route being left keeps its effort in the shared memory, which is what
+   * a later switch back to that model submits.
    * @param selection - provider, provider-owned model id, and optional adapter-owned effort.
    * @returns the selection outcome, including the original Remote failure.
    */
   async select(selection: ModelSelection): Promise<RemoteResult<void>> {
     this.assertAvailable()
     const generation = ++this.generation
+    this.rememberCurrentEffort()
     this.store.update((s) => { s.status = 'selecting'; s.error = null })
     const result = await this.sessions.selectModel({
       sessionId: this.sessionId,
@@ -111,6 +119,29 @@ export class ModelDirectory {
     this.store.update((s) => { s.status = 'ready'; s.error = null })
     this.syncInputs()
     return { ok: true, value: undefined }
+  }
+
+  /**
+   * The selection a catalog row submits: the effort this client last had in
+   * effect for that route while the model still advertises it, otherwise the
+   * model's own default. Re-picking the route already in use keeps the
+   * Session's effort. A remembered level the model no longer advertises is
+   * dropped rather than submitted — the Host rejects unknown levels.
+   * @param group - the provider group that owns the row.
+   * @param model - the catalog row.
+   * @returns the row's complete selection.
+   */
+  selectionFor(group: ModelProviderGroup, model: ModelCatalogModel): ModelSelection {
+    const current = this.store.getSnapshot().current
+    const sameRoute = current?.provider === group.id && current.model === model.id
+    const effort = (sameRoute ? current.reasoningEffort : undefined)
+      ?? this.rememberedEffort(group.id, model)
+      ?? model.reasoning?.defaultEffort
+    return {
+      provider: group.id,
+      model: model.id,
+      ...effort === undefined ? {} : { reasoningEffort: effort },
+    }
   }
 
   /**
@@ -137,6 +168,25 @@ export class ModelDirectory {
     if (!this.available()) {
       throw new Error('model selection is unavailable for addressed subagent sessions')
     }
+  }
+
+  /** Record the Session's own effort for its route, so returning to that model restores it. */
+  private rememberCurrentEffort(): void {
+    const current = this.store.getSnapshot().current
+    if (current?.reasoningEffort !== undefined) {
+      this.efforts.remember(current.provider, current.model, current.reasoningEffort)
+    }
+  }
+
+  /**
+   * @param providerId - the route's provider.
+   * @param model - the catalog row whose advertised levels decide the value.
+   * @returns the remembered effort, while the model still advertises it.
+   */
+  private rememberedEffort(providerId: string, model: ModelCatalogModel): string | undefined {
+    const remembered = this.efforts.recall(providerId, model.id)
+    const offered = model.reasoning?.efforts.some(effort => effort.id === remembered) ?? false
+    return remembered !== undefined && offered ? remembered : undefined
   }
 
   private syncInputs(): void {

@@ -154,19 +154,21 @@ describe('sidebar global panels', () => {
     const navigation = await view.findByRole('navigation', { name: 'Global panels' })
     const rows = within(navigation).getAllByRole('button')
     expect(rows.map(row => row.getAttribute('aria-label'))).toEqual(['Beta panel', 'Alpha panel'])
+    // Icon-only rows: the label never draws as text — it reaches the pointer
+    // through the always-rendered tooltip and the button's aria-label.
+    const wide = !collapsed
     for (const [id, label] of [[BETA, 'Beta panel'], [ALPHA, 'Alpha panel']] as const) {
       const row = within(navigation).getByRole('button', { name: label })
       expect(row.getAttribute('aria-current')).toBeNull()
-      expect(row.textContent).toBe(collapsed ? '' : label)
+      expect(row.textContent).toBe('')
       expect(row.querySelectorAll('svg')).toHaveLength(1)
       const icon = within(row).getByTestId(`${id}-icon`)
       expect(icon.getAttribute('data-active')).toBe('false')
-      expect(icon.querySelector('svg')?.getAttribute('width')).toBe(collapsed ? '18' : '16')
-      expect(icon.querySelector('svg')?.getAttribute('height')).toBe(collapsed ? '18' : '16')
+      expect(icon.querySelector('svg')?.getAttribute('width')).toBe(wide ? '16' : '18')
+      expect(icon.querySelector('svg')?.getAttribute('height')).toBe(wide ? '16' : '18')
       act(() => { row.focus() })
       expect(document.activeElement).toBe(row)
-      if (collapsed) expect(view.getByRole('tooltip').textContent).toBe(label)
-      else expect(view.queryByRole('tooltip')).toBeNull()
+      expect(view.getByRole('tooltip').textContent).toBe(label)
       act(() => { row.blur() })
       expect(document.activeElement).not.toBe(row)
       expect(view.queryByRole('tooltip')).toBeNull()
@@ -177,7 +179,7 @@ describe('sidebar global panels', () => {
     const { runtime, locale, view } = await bench()
     await mountPanels(runtime, locale, 20)
     const navigation = await view.findByRole('navigation', { name: 'Global panels' })
-    expect(within(navigation).getAllByRole('button').map(row => row.textContent)).toEqual(['Alpha panel', 'Beta panel'])
+    expect(within(navigation).getAllByRole('button').map(row => row.getAttribute('aria-label'))).toEqual(['Alpha panel', 'Beta panel'])
   })
 
   it('selects registered main content and keeps a repeated selection active', async () => {
@@ -218,9 +220,9 @@ describe('sidebar global panels', () => {
     const entries = runtime.slots.entries('sidebar.panellist')
     act(() => { locale.setLocale('zh') })
     await waitFor(() => {
-      expect(within(navigation).getByRole('button', { name: '甲面板' }).textContent).toBe('甲面板')
+      expect(within(navigation).getByRole('button', { name: '甲面板' }).textContent).toBe('')
     })
-    expect(within(navigation).getByRole('button', { name: 'Beta panel' }).textContent).toBe('Beta panel')
+    expect(within(navigation).getByRole('button', { name: 'Beta panel' }).textContent).toBe('')
     expect(runtime.slots.entries('sidebar.panellist')).toBe(entries)
   })
 
@@ -229,7 +231,9 @@ describe('sidebar global panels', () => {
     await mountPanel(runtime, { id: ALPHA, heading: 'Alpha content', label: 'Alpha panel', order: 20 })
     await mountPanel(runtime, { id: BETA, heading: 'Beta content' })
     const navigation = await view.findByRole('navigation', { name: 'Global panels' })
-    expect(within(navigation).getAllByRole('button').map(row => row.textContent)).toEqual([BETA, 'Alpha panel'])
+    // Icon-only rows render no label text; the omitted-label panel is
+    // identified by its id through the aria-label.
+    expect(within(navigation).getAllByRole('button').map(row => row.getAttribute('aria-label'))).toEqual([BETA, 'Alpha panel'])
     fireEvent.click(within(navigation).getByRole('button', { name: BETA }))
     expect(view.getByRole('heading', { name: 'Beta content' })).toBeTruthy()
   })

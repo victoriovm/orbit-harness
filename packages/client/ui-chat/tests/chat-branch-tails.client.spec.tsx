@@ -1074,9 +1074,11 @@ describe('small branch tails', () => {
           : undefined}
       />,
     )
-    // The untimed counts pill renders static, so the usage pill is the only button.
+    // The untimed time pill stays an icon-only static reading (counts moved to
+    // the dialog titleValue, which needs a timed figure), so the usage pill is
+    // the only button.
     const [usagePill] = [...view.getAllByRole('button')] as [HTMLElement]
-    expect(view.getByText('1 轮 1 步').closest('button')).toBeNull()
+    expect(view.queryByText('1 轮 1 步')).toBeNull()
     expect(usagePill.textContent).toBe('10 tok')
     // Pure output accounting still reaches the usage pill's click-open dialog rows.
     fireEvent.click(usagePill)

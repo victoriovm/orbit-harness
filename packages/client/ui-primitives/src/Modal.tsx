@@ -12,6 +12,7 @@ interface ModalBaseProps {
   description?: string
   children?: ReactNode
   footer?: ReactNode
+  actions?: ReactNode
   className?: string
   contentClassName?: string
   onKeyDownCapture?: KeyboardEventHandler<HTMLDivElement>
@@ -32,6 +33,9 @@ type ModalProps = ModalBaseProps & (
  * @param props.description - optional supporting sentence under the title.
  * @param props.children - body (inputs, etc.).
  * @param props.footer - action row (Cancel / Create).
+ * @param props.actions - optional header controls rendered between the title
+ * and the close button, each owning its own copy and behavior. Ignored in
+ * headless mode, whose caller draws the whole card.
  * @param props.contentClassName - optional class for a scrollable content region.
  * @param props.headless - render children directly in the card (no default
  * header/close/body chrome); mask, card, Escape, and aria-label remain.
@@ -39,7 +43,7 @@ type ModalProps = ModalBaseProps & (
  * @returns null when closed; otherwise the overlay tree.
  */
 export function Modal({
-  open, onClose, title, closeLabel, description, children, footer, className, contentClassName, onKeyDownCapture, headless = false,
+  open, onClose, title, closeLabel, description, children, footer, actions, className, contentClassName, onKeyDownCapture, headless = false,
 }: ModalProps) {
   useEffect(() => {
     if (!open) return
@@ -68,9 +72,12 @@ export function Modal({
               <div className={clsx(css.content, contentClassName)}>
                 <div className={css.header}>
                   <h2 className={css.title}>{title}</h2>
-                  <button type="button" className={css.close} aria-label={closeLabel} onClick={onClose}>
-                    <IconCloseOutlineRegular size={14} />
-                  </button>
+                  <div className={css.headerEnd}>
+                    {actions}
+                    <button type="button" className={css.close} aria-label={closeLabel} onClick={onClose}>
+                      <IconCloseOutlineRegular size={14} />
+                    </button>
+                  </div>
                 </div>
                 {description !== undefined && description !== '' && (
                   <p className={css.description}>{description}</p>

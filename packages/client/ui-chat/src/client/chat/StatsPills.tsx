@@ -146,17 +146,7 @@ function TimePill({ stats, t, dialog }: {
       tps: formatTokensPerSecond(stats.decodeTokens / (stats.decodeMs / 1_000)),
     })
     : null
-  const label = (
-    <span className={css.label}>
-      {counts}
-      {tps !== null && (
-        <>
-          <span className={css.sep} aria-hidden>·</span>
-          {tps}
-        </>
-      )}
-    </span>
-  )
+  const label = tps === null ? null : <span className={css.label}>{tps}</span>
   // A window without one timed figure has no dialog rows to show, so the pill
   // stays a plain reading instead of a button opening an empty dialog.
   if (stats.llmMs <= 0 && stats.toolMs <= 0 && stats.ttftSteps <= 0 && stats.decodeMs <= 0) {
@@ -194,6 +184,10 @@ function TimePill({ stats, t, dialog }: {
             <span className={dialogCss.titleLabel}>
               <IconGaugeOutlineRegular />
               {t('stats.dialog.title')}
+            </span>
+
+            <span className={dialogCss.titleValue}>
+              {counts}
             </span>
           </div>
           <div className={dialogCss.titleRule} aria-hidden />
@@ -242,7 +236,6 @@ function UsagePill({ usage, t, dialog }: {
   const total = billedInputTokens(usage) + usage.outputTokens
   const totalText = t('message.turnUsage.count', { count: formatTokens(total, t) })
   const cacheHit = cacheHitPercent(usage)
-  const cacheHitText = cacheHit !== null ? t('stats.cacheHit', { percent: cacheHit }) : null
   return (
     <span ref={rootRef} className={css.anchor}>
       <button
@@ -250,18 +243,12 @@ function UsagePill({ usage, t, dialog }: {
         className={css.pill}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={cacheHitText === null ? totalText : `${totalText} · ${cacheHitText}`}
+        aria-label={totalText}
         onClick={() => { setOpen(!open) }}
       >
         <IconDatabaseOutlineRegular />
         <span className={css.label}>
           {totalText}
-          {cacheHitText !== null && (
-            <>
-              <span className={css.sep} aria-hidden>·</span>
-              {cacheHitText}
-            </>
-          )}
         </span>
       </button>
       {open && createPortal(

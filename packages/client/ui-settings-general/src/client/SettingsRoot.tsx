@@ -139,6 +139,14 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
     setActiveId(id)
     setOpen(true)
   }, [])
+  // The model picker's header offers a "manage providers" shortcut; it cannot
+  // reach this shell's state through slots (the seat face is owner-controlled),
+  // so it announces a window event the shell answers by opening Models.
+  useEffect(() => {
+    const openModels = (): void => { openSection('models') }
+    window.addEventListener('dsh:open-settings-models', openModels)
+    return () => { window.removeEventListener('dsh:open-settings-models', openModels) }
+  }, [openSection])
 
   // The ledger tick keeps the nav rows fresh: registrants re-register with
   // freshly localized text on locale change, and the trigger/header/close

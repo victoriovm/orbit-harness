@@ -19,6 +19,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { WeakMapWithValues } from '@deepseek-ai/dsh-util-values'
 import { ModelCatalogDirectory } from './catalog.ts'
 import { ModelDirectory } from './directory.ts'
+import { ModelEffortMemory } from './effort-memory.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -38,6 +39,8 @@ export class ModelDirectoryResolver extends Service {
 
   private readonly live: LiveState = { directories: new WeakMapWithValues() }
   private readonly catalog: ModelCatalogDirectory
+  /** Route-to-effort memory one resolver serves every Session from. */
+  private readonly efforts = new ModelEffortMemory()
 
   /** Localized composer-block copy; this plugin owns the string it raises. */
   private readonly blockReason: () => string
@@ -81,6 +84,7 @@ export class ModelDirectoryResolver extends Service {
       () => sessions.subagentAddress(sessionId) === undefined,
       this.catalog,
       binding.session.projections.faceOf('modelSelection'),
+      this.efforts,
     )
     live.directories.set(binding, directory)
     // The composer cannot read this plugin (the dependency runs one way), so

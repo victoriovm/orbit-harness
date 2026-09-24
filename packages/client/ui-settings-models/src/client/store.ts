@@ -31,6 +31,18 @@ export interface ProviderDirectoryEntry {
   readonly active: boolean
   readonly declared?: boolean
   readonly error?: string
+  /**
+   * Settings field that withdraws this provider's route while its profile
+   * stays, for a provider the composition declares and the page therefore
+   * cannot remove by unsetting the user layer.
+   */
+  readonly disableField?: string
+}
+
+/** Read the optional per-provider disable switch. */
+function disableFieldOf(entry: LlmConfigurableProvider): string | undefined {
+  const field = entry.disableField
+  return field === undefined || field.length === 0 ? undefined : field
 }
 
 /**
@@ -45,15 +57,19 @@ export function joinProviderDirectory(
 ): ProviderDirectoryEntry[] {
   const active = new Set(registered.map(provider => provider.id))
   const declared = new Set(directory.map(entry => entry.provider))
-  const rows: ProviderDirectoryEntry[] = directory.map(entry => ({
-    provider: entry.provider,
-    displayName: entry.displayName,
-    settingsNs: entry.settingsNs,
-    settingsPath: [...entry.settingsPath],
-    active: active.has(entry.provider),
-    ...entry.declared === undefined ? {} : { declared: entry.declared },
-    ...entry.error === undefined ? {} : { error: entry.error },
-  }))
+  const rows: ProviderDirectoryEntry[] = directory.map((entry) => {
+    const disableField = disableFieldOf(entry)
+    return {
+      provider: entry.provider,
+      displayName: entry.displayName,
+      settingsNs: entry.settingsNs,
+      settingsPath: [...entry.settingsPath],
+      active: active.has(entry.provider),
+      ...entry.declared === undefined ? {} : { declared: entry.declared },
+      ...entry.error === undefined ? {} : { error: entry.error },
+      ...disableField === undefined ? {} : { disableField },
+    }
+  })
   for (const provider of registered) {
     if (declared.has(provider.id)) continue
     rows.push({
@@ -75,6 +91,11 @@ export interface ProviderRow {
   configured: boolean
   /** Whether the user layer alone carries the profile (removal restores the base). */
   removable: boolean
+  /**
+   * Whether the provider's own switch currently reads false: its route holds no
+   * models, and the page offers to turn it back on instead of removing it.
+   */
+  disabled: boolean
   /** The credential reference the resolved profile names, when one does. */
   apiKeyEnv: string | undefined
   /** Credential state for {@link apiKeyEnv}, once described. */
@@ -204,10 +225,14 @@ export class ModelsSettingsStore {
         && entry.settingsPath.length > 0
         && this.schema.hasPath(namespace.user, entry.settingsPath)
         && !this.schema.hasPath(namespace.base, entry.settingsPath)
+      const disabled = entry.disableField !== undefined
+        && namespace !== undefined
+        && this.schema.getPath(namespace.value, [...entry.settingsPath, entry.disableField]) === false
       return {
         entry,
         configured,
         removable,
+        disabled,
         apiKeyEnv: apiKeyEnvOf(namespace, entry.settingsPath, this.schema),
         credential: undefined,
       }
@@ -274,6 +299,8 @@ export type OnboardingReadiness =
   | { kind: 'adapter-absent' }
   | { kind: 'provider-ready' }
   | { kind: 'credential-missing' }
+  /** No provider serves requests; a route can be created and given a credential. */
+  | { kind: 'add-provider' }
   | {
     kind: 'unavailable'
     reason:
@@ -285,12 +312,22 @@ export type OnboardingReadiness =
   }
 
 /**
+ * The settings namespace a hand-declared provider is created in: the generic
+ * first-run step writes its route through that section, exactly as the Models
+ * page's own create card does, so that one id is the whole coupling between
+ * them.
+ */
+const CUSTOM_PROVIDER_NS = 'llm-pi-ai'
+
+/**
  * Project first-run readiness from the provider/settings/credential join used
  * by the Models page. The step exists to leave the user with a model to talk
- * to, so ANY usable provider ends it; only when none exists does the official
- * DeepSeek route — the one route the prompt can offer a key field for — decide
- * whether prompting can help. A missing official configurable-provider
- * declaration means the adapter is not repairable by navigating to Models.
+ * to, so ANY usable provider ends it; only when none exists does the generic
+ * add-provider route — the one first-run form reachable for any gateway —
+ * decide whether prompting can help, with the official DeepSeek credential
+ * prompt kept as the fallback. A missing custom-provider section means the
+ * composition has no generic first-run offer to make, which is why the
+ * section's own presence decides.
  * @param state - current shared Models join snapshot.
  * @returns the onboarding state without reading a parallel fact source.
  */
@@ -305,6 +342,30 @@ export function onboardingReadiness(state: ModelsSettingsState): OnboardingReadi
     }
   }
   if (state.rows.some(providerUsable)) return { kind: 'provider-ready' }
+  // Both halves of the generic create have to be reachable: a route is
+  // written into the custom-provider section and its key into the credential
+  // store. Any usable provider already ended the step above; otherwise the
+  // generic form is the first-run offer and the DeepSeek credential prompt
+  // stays as its fallback.
+  const canAddProvider = state.namespaces.has(CUSTOM_PROVIDER_NS)
+    && state.rows.some(row => row.entry.settingsNs === CUSTOM_PROVIDER_NS)
+  if (canAddProvider) {
+    if (!state.writable) {
+      return {
+        kind: 'unavailable',
+        reason: 'settings-read-only',
+      }
+    }
+    // A failed credential batch leaves every row's key state unknown,
+    // including the reference this step is about to create.
+    if (state.credentialError !== null) {
+      return {
+        kind: 'unavailable',
+        reason: 'credentials-unavailable',
+      }
+    }
+    return { kind: 'add-provider' }
+  }
   const row = state.rows.find(candidate =>
     candidate.entry.provider === 'deepseek-official'
     && candidate.entry.settingsNs === 'llm-deepseek'

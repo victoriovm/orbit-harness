@@ -17,6 +17,7 @@ function row(overrides: Partial<ProviderRow> = {}): ProviderRow {
     },
     configured: true,
     removable: false,
+    disabled: false,
     apiKeyEnv: 'DEEPSEEK_API_KEY',
     credential: missingCredential,
     ...overrides,
@@ -35,6 +36,7 @@ function otherRow(overrides: Partial<ProviderRow> = {}): ProviderRow {
     },
     configured: true,
     removable: true,
+    disabled: false,
     apiKeyEnv: 'HFAI_API_KEY',
     credential: { configured: true, source: 'file', writable: true },
     ...overrides,
@@ -51,6 +53,18 @@ function state(overrides: Partial<ModelsSettingsState> = {}): ModelsSettingsStat
     namespaces: new Map(),
     ...overrides,
   }
+}
+
+/** A described custom-provider section the generic first-run step writes into. */
+function customSection(): ModelsSettingsState['namespaces'] {
+  return new Map([['llm-pi-ai', {
+    ns: 'llm-pi-ai',
+    schema: {},
+    value: {},
+    applies: 'live',
+    secrets: [],
+    revision: 0,
+  }]]) as unknown as ModelsSettingsState['namespaces']
 }
 
 describe('providerUsable', () => {
@@ -83,6 +97,19 @@ describe('onboardingReadiness', () => {
 
   it('reports a missing writable effective credential', () => {
     expect(onboardingReadiness(state())).toEqual({ kind: 'credential-missing' })
+  })
+
+  it('offers the generic provider form while no provider can serve requests', () => {
+    expect(onboardingReadiness(state({
+      rows: [row(), otherRow({ credential: missingCredential })],
+      namespaces: customSection(),
+    }))).toEqual({ kind: 'add-provider' })
+  })
+
+  it('keeps DeepSeek as the fallback when the generic section is absent', () => {
+    expect(onboardingReadiness(state({
+      rows: [row(), otherRow({ credential: missingCredential })],
+    }))).toEqual({ kind: 'credential-missing' })
   })
 
   it('ends onboarding once any other registered provider can serve requests', () => {

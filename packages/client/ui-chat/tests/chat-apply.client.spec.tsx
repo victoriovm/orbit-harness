@@ -101,7 +101,7 @@ describe('Chat apply wiring', () => {
     expect(resolveSlotLabel(views[0]?.options.label)).toBe('对话')
     expect(b.runtime.slots.spec('conversation.chat.node'))
       .toMatchObject({ kind: 'keyed', scope: 'session' })
-    expect(b.runtime.slots.entries('conversation.composer.dock').map(row => row.options.id))
+    expect(b.runtime.slots.entries('conversation.input.left').map(row => row.options.id))
       .toEqual(['stats'])
     expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))
       .toEqual(['transcript-view', 'performance-usage', 'link-opening', 'composer-enter'])
@@ -136,7 +136,7 @@ describe('Chat apply wiring', () => {
     b.chatSettings.publish({ value: { linkOpening: 'sidebar', transcriptView: 'compact', performanceUsage: 'compact' } })
     expect(face.hooks.performanceUsage.getSnapshot()).toBe('compact')
     for (const entry of [
-      b.runtime.slots.entries('conversation.composer.dock').find(entry => entry.options.id === 'stats')!,
+      b.runtime.slots.entries('conversation.input.left').find(entry => entry.options.id === 'stats')!,
       b.runtime.slots.entries('conversation.chat.node').find(entry => entry.options.key === 'turn-tail')!,
     ]) {
       const injected = (entry.inject as () => Pick<PerformanceUsageRowInjected, 'hooks'>)()

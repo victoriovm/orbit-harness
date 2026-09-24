@@ -67,9 +67,12 @@ const GROUPS = [{
 /** Boot the plugin over fake faces + a stateful fake host (current moves on selectModel). */
 async function bench(locale: 'zh' | 'en' = 'zh') {
   const ctx = new Context()
+  // A lane without web storage keeps every bench in-process; where the lane has
+  // it, each bench still starts from a client that remembers no level.
+  globalThis.localStorage?.clear()
   let defaultSelection: ModelSelection = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
   let selected = defaultSelection
-  const calls = { models: 0, select: 0 }
+  const calls = { models: 0, select: 0, autoConfigure: 0 }
   const projections = new Map<SessionId, SnapshotStore<ModelSelectionProjection | undefined>>()
   // Whether the Host reports an adapter for the current route; the composer
   // block follows this, never catalog membership.
@@ -102,8 +105,45 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
       return Promise.resolve({ ok: true as const, value: { selected } })
     },
   }
-  const remote = Object.assign(new TestRemote(ctx), { session: sessionRemote })
+  let autoConfigureFailure: RemoteError<'llm/model-auto-configure-rejected'> | undefined
+  const llmRemote = {
+    listProviders: () => Promise.resolve({
+      ok: true as const,
+      value: [{ id: 'orbit', name: 'Orbit' }, { id: 'deepseek-official', name: 'DeepSeek' }],
+    }),
+    listConfigurableProviders: () => Promise.resolve({
+      ok: true as const,
+      value: [
+        {
+          provider: 'orbit',
+          displayName: 'Orbit',
+          settingsNs: 'llm-pi-ai',
+          settingsPath: ['providers', 'orbit'],
+          declared: true,
+          autoConfigurable: true,
+        },
+        // Declared by a namespace owner that offers the action but not
+        // registered as a route: there is no live profile to reconfigure.
+        {
+          provider: 'dormant',
+          displayName: 'Dormant',
+          settingsNs: 'llm-pi-ai',
+          settingsPath: ['providers', 'dormant'],
+          autoConfigurable: true,
+        },
+        { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
+      ],
+    }),
+    autoConfigureModels: (_settingsNs: string, request: { provider: string }) => {
+      calls.autoConfigure += 1
+      return Promise.resolve(autoConfigureFailure === undefined
+        ? { ok: true as const, value: { provider: request.provider, models: 12, enriched: 11 } }
+        : { ok: false as const, error: autoConfigureFailure })
+    },
+  }
+  const remote = Object.assign(new TestRemote(ctx), { session: sessionRemote, llm: llmRemote })
   ctx.reflect.provide('remote.session', sessionRemote)
+  ctx.reflect.provide('remote.llm', llmRemote)
   const blocks = new Map<SessionId, { reason: string } | undefined>()
   ctx.provide('conversation', {
     blocks: {
@@ -182,6 +222,13 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
     hostCurrent: () => selected,
     rejectSelection: () => {
       selectionFailure = new RemoteError('session/writer-held', 'writer held', { sessionId: sid('owned') })
+    },
+    rejectAutoConfigure: () => {
+      autoConfigureFailure = new RemoteError(
+        'llm/model-auto-configure-rejected',
+        'endpoint refused',
+        { settingsNs: 'llm-pi-ai', provider: 'orbit' },
+      )
     },
     setHostCurrent: (selection: ModelSelection) => { defaultSelection = selection },
     setProjected: (id: SessionId, value: ModelSelectionProjection) => { projections.get(id)?.set(value) },
@@ -502,6 +549,40 @@ describe('ui-model-selection dual entry', () => {
     })).rejects.toThrow(/unavailable for addressed subagent/)
     b.ctx.emit('connection/reset')
     await Promise.resolve()
-    expect(b.calls).toEqual({ models: 2, select: 0 })
+    expect(b.calls).toEqual({ models: 2, select: 0, autoConfigure: 0 })
+  })
+})
+
+describe('ui-model-selection provider auto-configuration', () => {
+  it('offers only live routes whose settings namespace registered the action', async () => {
+    const b = await bench()
+    b.mint('s1')
+
+    // Three declared routes: one live and widened with the action, one dormant,
+    // and one whose namespace never offered it. Only the first can be rebuilt,
+    // and the record carries the namespace address the write needs.
+    await expect(b.seat().inject!(sid('s1')).autoConfigurableProviders()).resolves.toEqual({
+      kind: 'listed',
+      providers: [{ id: 'orbit', settingsNs: 'llm-pi-ai', name: 'Orbit' }],
+    })
+  })
+
+  it('submits the chosen route to the Host and reports the stored model count', async () => {
+    const b = await bench()
+    b.mint('s1')
+    const face = b.seat().inject!(sid('s1'))
+
+    await expect(face.autoConfigure({ id: 'orbit', settingsNs: 'llm-pi-ai', name: 'Orbit' }))
+      .resolves.toEqual({ kind: 'configured', models: 12, enriched: 11 })
+    expect(b.calls.autoConfigure).toBe(1)
+  })
+
+  it('turns a refused configuration into the outcome the dialog renders', async () => {
+    const b = await bench()
+    b.mint('s1')
+    b.rejectAutoConfigure()
+
+    await expect(b.seat().inject!(sid('s1')).autoConfigure({ id: 'orbit', settingsNs: 'llm-pi-ai', name: 'Orbit' }))
+      .resolves.toEqual({ kind: 'failed', message: 'endpoint refused' })
   })
 })

@@ -1629,3 +1629,22 @@ export const IconMicrophoneOutlineRegular = (props: IconProps) => (
 export const IconMicrophoneOutlineMedium = (props: IconProps) => (
   <IconMicrophoneOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
 )
+
+const IconBulbOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
+    <path d="M8 1.3a4.5 4.5 0 0 0-2.42 8.29c.3.2.48.53.48.89v1.62h3.88V10.48c0-.36.18-.69.48-.89A4.5 4.5 0 0 0 8 1.3Z" stroke="currentColor" strokeLinejoin="round" />
+    <path d="M6.9 9.9h2.2" stroke="currentColor" strokeLinecap="round" />
+    <path d="M6.2 13.6h3.6" stroke="currentColor" strokeLinecap="round" />
+    <path d="M6.9 15h2.2" stroke="currentColor" strokeLinecap="round" />
+  </svg>
+)
+
+/** Regular one-pixel IconBulbOutline artwork. */
+export const IconBulbOutlineRegular = (props: IconProps) => (
+  <IconBulbOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Medium IconBulbOutline artwork with a 1.3px stroke. */
+export const IconBulbOutlineMedium = (props: IconProps) => (
+  <IconBulbOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)

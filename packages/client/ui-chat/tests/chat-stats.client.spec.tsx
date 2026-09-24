@@ -182,15 +182,19 @@ describe('StatsPills', () => {
   it('renders the counts reading and usage pill and hides a brand-new empty session', () => {
     const { source } = makeSource({ nodes: [assistant(1, 1)] })
     const view = render(<StatsPills {...props(source)} />)
-    // No timing on the fixture: the speed segment drops out and the dialog
-    // would have no rows, so the counts reading stays a static pill (no button).
-    expect(view.getByText('1 turns 1 steps').closest('button')).toBeNull()
-    // Cache hit comes from the projection, so paging the window cannot change
-    // it; the usage pill leads with the whole-log token total. Its accessible
-    // name separates the segments the visual sep glyph joins.
+    // No timing on the fixture: the time pill stays an icon-only static reading
+    // (counts moved to the dialog titleValue, which needs a timed figure to
+    // open), so the only button is the usage pill.
+    expect(view.queryByText('1 turns 1 steps')).toBeNull()
+    expect(view.container.textContent).toBe('105 tok')
+    // Cache hit left the face: the usage pill shows only the whole-log token
+    // total, with the hit share in its dialog.
     const usagePill = view.getAllByRole('button')
-    expect(usagePill.map(pill => pill.textContent)).toEqual(['105 tok·Cache hit 90%'])
-    expect(usagePill[0]!.getAttribute('aria-label')).toBe('105 tok · Cache hit 90%')
+    expect(usagePill.map(pill => pill.textContent)).toEqual(['105 tok'])
+    expect(usagePill[0]!.getAttribute('aria-label')).toBe('105 tok')
+    fireEvent.click(usagePill[0]!)
+    expect(view.getByRole('dialog').textContent).toContain('Cache hit90%')
+    fireEvent.keyDown(document, { key: 'Escape' })
     const empty = makeSource()
     const emptyView = render(<StatsPills {...props(empty.source, {
       tokenUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
@@ -219,15 +223,22 @@ describe('StatsPills', () => {
   ])('formats an actual $actual cache-hit ratio as $expected', ({ tokenUsageValue, expected }) => {
     const { source } = makeSource({ nodes: [assistant(1, 1)] })
     const view = render(<StatsPills {...props(source, { tokenUsage: tokenUsageValue })} />)
-    expect(view.getAllByRole('button')[0]!.textContent).toContain(expected)
+    // Cache hit left the face: the pill shows only the total; the ratio lives
+    // in the usage dialog (dt/dd concatenate without a space in textContent,
+    // so 'Cache hit 99%' renders as 'Cache hit99%').
+    fireEvent.click(view.getAllByRole('button')[0]!)
+    expect(view.getByRole('dialog').textContent).toContain(expected.replace('Cache hit ', 'Cache hit'))
   })
 
-  it('exposes output speed on the counts pill when decode timing exists', () => {
+  it('exposes output speed on the time pill when decode timing exists', () => {
     const { source } = makeSource({ nodes: [timedStep()] })
     const view = render(<StatsPills {...props(source)} />)
+    // The face shows only tok/s; the turns/steps counts moved to the dialog titleValue.
     const timePill = view.getAllByRole('button')[0]!
-    expect(timePill.textContent).toBe('1 turns 1 steps·20 tok/s')
+    expect(timePill.textContent).toBe('20 tok/s')
     expect(timePill.getAttribute('aria-label')).toBe('1 turns 1 steps · 20 tok/s')
+    fireEvent.click(timePill)
+    expect(view.getByRole('dialog').textContent).toContain('1 turns 1 steps')
   })
 
   it('click-opens the time-and-speed dialog carrying the time split and speeds', () => {
@@ -245,7 +256,8 @@ describe('StatsPills', () => {
     expect(dialog.getAttribute('aria-label')).toBe('Session statistics')
     // Portaled out of the composer dock.
     expect(dialog.parentElement).toBe(document.body)
-    expect(dialog.firstChild?.textContent).toBe('Session statistics')
+    // The counts moved off the face into the dialog titleValue.
+    expect(dialog.firstChild?.textContent).toBe('Session statistics1 turns 1 steps')
     const details = dialog.querySelector('[data-session-stats-details]') as HTMLElement
     expect(details).toBeTruthy()
     expect(details.textContent).toContain('LLM time3.8s')
@@ -319,12 +331,15 @@ describe('StatsPills', () => {
     const { source } = makeSource({ nodes: [timedStep()] })
     const view = render(<StatsPills {...props(source, { tokenUsage: tokenUsage(9_995, 5) })} t={t} />)
     const [timePill, usagePill] = [...view.getAllByRole('button')] as [HTMLElement, HTMLElement]
-    expect(timePill.textContent).toBe('1 轮 1 步·20 tok/s')
-    // Whole-log total 9995 + 5 + 1 compacts to 10K.
-    expect(usagePill.textContent).toBe('10K tok·缓存命中 99.95%')
+    // Time face shows only tok/s; counts moved to the dialog titleValue.
+    expect(timePill.textContent).toBe('20 tok/s')
+    // Whole-log total 9995 + 5 + 1 compacts to 10K; cache hit left the face.
+    expect(usagePill.textContent).toBe('10K tok')
+    expect(usagePill.getAttribute('aria-label')).toBe('10K tok')
     fireEvent.click(timePill)
     const timeDialog = view.getByRole('dialog')
     expect(timeDialog.getAttribute('aria-label')).toBe('会话统计')
+    expect(timeDialog.textContent).toContain('1 轮 1 步')
     expect(timeDialog.textContent).toContain('模型用时3.8秒')
     expect(timeDialog.textContent).toContain('首 token 平均（TTFT）0.8秒')
     expect(timeDialog.textContent).toContain('输出速度（TPS）20 tok/s')
@@ -342,15 +357,21 @@ describe('StatsPills', () => {
       contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 },
     })} />)
     // Context occupancy lives on the composer's ContextMeter ring, not here.
+    // Cache hit left the face: the durable usage pill shows only the total.
     const pills = view.getAllByRole('button')
     expect(pills).toHaveLength(1)
-    expect(pills[0]!.textContent).toBe('105 tok·Cache hit 90%')
+    expect(pills[0]!.textContent).toBe('105 tok')
+    expect(pills[0]!.getAttribute('aria-label')).toBe('105 tok')
+    fireEvent.click(pills[0]!)
+    expect(view.getByRole('dialog').textContent).toContain('Cache hit90%')
   })
 
   it('drops the usage pill when no projection is composed', () => {
     const { source } = makeSource({ nodes: [assistant(1, 1)] })
     const view = render(<StatsPills {...props(source, {})} />)
-    expect(view.container.textContent).toBe('1 turns 1 steps')
+    // The untimed window has no dialog rows, so the time pill stays an
+    // icon-only static reading with no visible counts text at all.
+    expect(view.container.textContent).toBe('')
     // The untimed window has no dialog rows either, so no button renders at all.
     expect(view.queryAllByRole('button')).toHaveLength(0)
   })
@@ -358,12 +379,16 @@ describe('StatsPills', () => {
   it('renders whole-session counts from the sessionStats projection over the paged window', () => {
     // The bug's acceptance at unit level: one loaded page must not scope the
     // counter — the durable projection's totals win over the window fold.
+    // Counts moved off the face into the dialog titleValue, so the projection
+    // carries one timed figure to open the dialog.
     const { source } = makeSource({ nodes: [assistant(1, 1)] })
     const view = render(<StatsPills {...props(source, {
       tokenUsage: USAGE,
-      sessionStats: sessionStats({ turns: 10, steps: 89 }),
+      sessionStats: sessionStats({ turns: 10, steps: 89, llmMs: 1_000 }),
     })} />)
-    expect(view.getByText('10 turns 89 steps')).toBeTruthy()
+    const timePill = view.getAllByRole('button')[0]!
+    fireEvent.click(timePill)
+    expect(view.getByRole('dialog').textContent).toContain('10 turns 89 steps')
   })
 
   it('treats a defined zero-count projection as empty, not as fallback', () => {
@@ -379,25 +404,38 @@ describe('StatsPills', () => {
 
   it('hides the usage pill when steps closed without any billed activity', () => {
     // A session whose only turn failed before billing (e.g. an auth error):
-    // the counts pill renders alone, not an uninformative zero-token pill.
+    // the time pill renders alone (icon-only static reading, since the
+    // projection carries no timed figure), not an uninformative zero-token pill.
     const { source } = makeSource()
     const view = render(<StatsPills {...props(source, {
       tokenUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
       sessionStats: sessionStats({ turns: 1, steps: 1 }),
     })} />)
-    expect(view.container.textContent).toBe('1 turns 1 steps')
+    expect(view.container.textContent).toBe('')
     expect(view.queryAllByRole('button')).toHaveLength(0)
+    // The counts survive only inside the projection: serving one timed figure
+    // opens the dialog carrying them in its titleValue.
+    const timed = makeSource()
+    const timedView = render(<StatsPills {...props(timed.source, {
+      tokenUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      sessionStats: sessionStats({ turns: 1, steps: 1, llmMs: 1_000 }),
+    })} />)
+    fireEvent.click(timedView.getAllByRole('button')[0]!)
+    expect(timedView.getByRole('dialog').textContent).toContain('1 turns 1 steps')
   })
 
   it('keeps the counts pill over an empty visible window when the projection carries totals', () => {
     // Extends the durable-groups guarantee: full-session counts survive a
-    // window that compaction (or paging) left without assistant nodes.
+    // window that compaction (or paging) left without assistant nodes. The
+    // counts live in the dialog titleValue, so the projection carries one
+    // timed figure to open the dialog.
     const { source } = makeSource()
     const view = render(<StatsPills {...props(source, {
       tokenUsage: USAGE,
-      sessionStats: sessionStats({ turns: 7, steps: 44 }),
+      sessionStats: sessionStats({ turns: 7, steps: 44, llmMs: 1_000 }),
     })} />)
-    expect(view.getByText('7 turns 44 steps')).toBeTruthy()
+    fireEvent.click(view.getAllByRole('button')[0]!)
+    expect(view.getByRole('dialog').textContent).toContain('7 turns 44 steps')
   })
 
   it('renders whole-log speed and dialog figures from the projection, not the loaded window', () => {
@@ -413,9 +451,12 @@ describe('StatsPills', () => {
       }),
     })} />)
     const timePill = view.getAllByRole('button')[0]!
-    expect(timePill.textContent).toBe('200 turns 200 steps·20 tok/s')
+    // Time face shows only tok/s; the whole-log counts moved to the dialog titleValue.
+    expect(timePill.textContent).toBe('20 tok/s')
+    expect(timePill.getAttribute('aria-label')).toBe('200 turns 200 steps · 20 tok/s')
     fireEvent.click(timePill)
     const dialog = view.getByRole('dialog')
+    expect(dialog.textContent).toContain('200 turns 200 steps')
     expect(dialog.textContent).toContain('LLM time1m40s')
     expect(dialog.textContent).toContain('Tool time1m2s')
     expect(dialog.textContent).toContain('Avg time to first token (TTFT)0.8s')
@@ -445,9 +486,13 @@ describe('StatsPills', () => {
         cacheWriteTokens: 100,
       },
     })} />)
-    expect(view.getAllByRole('button')[0]!.textContent).toBe('207 tok·Cache hit 45%')
+    // Cache hit left the face: the pill shows only the total, and the hit
+    // share lives in the dialog.
+    expect(view.getAllByRole('button')[0]!.textContent).toBe('207 tok')
+    expect(view.getAllByRole('button')[0]!.getAttribute('aria-label')).toBe('207 tok')
     // A session that did write cache keeps the row, exact.
     fireEvent.click(view.getAllByRole('button')[0]!)
+    expect(view.getByRole('dialog').textContent).toContain('Cache hit45%')
     expect(view.getByRole('dialog').textContent).toContain('Cache write100 tok')
   })
 

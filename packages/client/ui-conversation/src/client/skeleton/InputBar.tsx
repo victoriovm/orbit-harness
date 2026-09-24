@@ -438,10 +438,9 @@ export const InputBar = memo(function InputBar({
               hidden
               onChange={onPickFiles}
             />
-            <div className={css.modes}>
-              {sessionId === undefined ? null : renderSlot('conversation.input.permission', { locked })}
-              {sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked })}
-            </div>
+            {sessionId === undefined
+              ? null
+              : renderSlot('conversation.input.plan', { locked })}
             {input === undefined || sessionId === undefined
               ? null
               : renderSlot('conversation.input.left', {})}

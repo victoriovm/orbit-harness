@@ -317,6 +317,9 @@ function runPnpm(
   const pnpmModule = siblingMjs !== undefined && existsSync(siblingMjs) ? siblingMjs : undefined
   if (run !== undefined) {
     if (pnpmModule !== undefined) return run.run(args.join(' '), process.execPath, [pnpmModule, ...args], { cwd, env })
+    // A `.cmd` launcher is a shell script, not an executable image: spawning
+    // it directly fails with EFTYPE, so it must go through a shell.
+    if (lowerEntry.endsWith('.cmd')) return run.run(args.join(' '), rawEntry, args, { cwd, env, shell: true })
     return run.run(args.join(' '), rawEntry, args, { cwd, env })
   }
   return new Promise((resolvePromise, reject) => {

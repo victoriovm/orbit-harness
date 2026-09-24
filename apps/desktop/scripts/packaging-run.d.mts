@@ -36,6 +36,8 @@ export function createPackagingRun(root: string, metadata: object, settings?: { 
     env: NodeJS.ProcessEnv
     /** Optional stage deadline; timeout fails the run even if the child reports exit zero. */
     timeoutMs?: number
+    /** Run through a shell (needed for .cmd launchers on Windows, which spawn() cannot execute directly). */
+    shell?: boolean | string
   }): Promise<void>
   finish(success: boolean): void
 }

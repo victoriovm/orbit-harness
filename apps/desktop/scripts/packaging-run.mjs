@@ -61,7 +61,7 @@ export function packagingOutputRedactor(secrets, emit) {
  * @param {string} root Parent for retained packaging records.
  * @param {object} metadata Public target/version metadata only.
  * @param {{parallel?: boolean, secrets?: readonly string[]}} settings Parallel stages are opt-in; secrets include credentials removed from child environments.
- * @returns {{directory: string, run: (stage: string, executable: string, args: readonly string[], options: {cwd: string, env: NodeJS.ProcessEnv, timeoutMs?: number}) => Promise<void>, finish: (success: boolean) => void}} Owned run supervisor; an optional stage deadline records timeout independently of exit status and awaits termination.
+ * @returns {{directory: string, run: (stage: string, executable: string, args: readonly string[], options: {cwd: string, env: NodeJS.ProcessEnv, timeoutMs?: number, shell?: boolean|string}) => Promise<void>, finish: (success: boolean) => void}} Owned run supervisor; an optional stage deadline records timeout independently of exit status and awaits termination.
  */
 export function createPackagingRun(root, metadata, settings = {}) {
   const started = performance.now()
@@ -119,7 +119,8 @@ export function createPackagingRun(root, metadata, settings = {}) {
     try {
       recordPackagingEvent(directory, { type: 'stage-start', stage, stageId })
       child = spawn(executable, [...args], { cwd: options.cwd, env: { ...options.env, DSH_DESKTOP_PACKAGING_RUN_DIR: directory },
-        windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] })
+        windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'],
+        ...options.shell === undefined ? {} : { shell: options.shell } })
       closed = new Promise(resolveClose => {
         child.once('error', () => { launchError = true })
         child.once('close', (code, signal) => { stageClosed = true; resolveClose({ code, signal }) })

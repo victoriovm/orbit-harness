@@ -8,13 +8,17 @@ import { readFile } from 'node:fs/promises'
  *
  * The packaged application installs this package's `dependencies` only, so its devDependencies
  * have no copy to resolve at runtime: they must be inlined. tsdown externalizes a package whose
- * emitted `lib/` it cannot read, without failing the build, so these three resolve from `src`
- * and a bundle-time build never depends on that output.
+ * emitted `lib/` it cannot read, without failing the build, so these resolve from `src` and a
+ * bundle-time build never depends on that output.
  */
 const bundledWorkspacePackages = {
   '@deepseek-ai/dsh-app-boot': fileURLToPath(new URL('../../packages/boot/app-boot/src/index.ts', import.meta.url)),
   '@deepseek-ai/dsh-deepseek-account': fileURLToPath(new URL('../../packages/credentials/deepseek-account/src/index.ts', import.meta.url)),
   '@deepseek-ai/dsh-home-paths': fileURLToPath(new URL('../../packages/util/home-paths/src/index.ts', import.meta.url)),
+  // Transitive main-process dependency of dsh-app-boot: its `lib/` may not be built when this
+  // bundle runs (fresh CI checkouts), in which case tsdown silently externalizes the bare
+  // specifier and the packaged app crashes at startup with ERR_MODULE_NOT_FOUND.
+  '@deepseek-ai/cordis-plugin-loader': fileURLToPath(new URL('../../vendor/loader/src/index.ts', import.meta.url)),
 }
 
 export default defineConfig([

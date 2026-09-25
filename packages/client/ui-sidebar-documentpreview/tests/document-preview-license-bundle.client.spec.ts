@@ -55,8 +55,14 @@ describe('published document preview licenses', () => {
       expect(packed.files.map(file => file.path)).toContain('lib/client.pdf.js')
       expect(packed.files.some(file => file.path.endsWith('pdfjs-NOTICES.txt'))).toBe(false)
 
-      const client = run('tar', ['-xOf', resolve(packageRoot, packed.filename), 'package/lib/client.js'], packageRoot, task.timeout)
-      const pdf = run('tar', ['-xOf', resolve(packageRoot, packed.filename), 'package/lib/client.pdf.js'], packageRoot, task.timeout)
+      // GNU tar reads `C:` in an absolute path as a remote host, so the member
+      // extraction runs beside the tarball and names it relatively.
+      const packedDir = dirname(resolve(packageRoot, packed.filename))
+      const packedName = packed.filename.split(/[\\/]/u).at(-1) ?? packed.filename
+      const readMember = (member: string): string =>
+        run('tar', ['-xOf', packedName, member], packedDir, task.timeout)
+      const client = readMember('package/lib/client.js')
+      const pdf = readMember('package/lib/client.pdf.js')
       expect([...client.matchAll(/require\.async\("(\.\/client[^"/]*\.js)"\)/gu)].map(match => match[1]))
         .toEqual(['./client.pdf.js', './client.excel.js'])
       expect(client).not.toMatch(/\brequire\("\.\/client[^"/]*\.js"\)/u)
@@ -65,7 +71,7 @@ describe('published document preview licenses', () => {
       expect(client).not.toContain('//! Bundled PDF.js license notices')
       expect(client).not.toContain('/pdfjs-dist/')
       expect(pdf).toContain('//! Bundled PDF.js license notices')
-      const excel = run('tar', ['-xOf', resolve(packageRoot, packed.filename), 'package/lib/client.excel.js'], packageRoot, task.timeout)
+      const excel = readMember('package/lib/client.excel.js')
       expect(excel).not.toMatch(/\brequire\("\.\/client[^"/]*\.js"\)/u)
       expect(client).not.toContain('FortuneSheet')
       expect(excel).toContain('//! Bundled spreadsheet license notices')

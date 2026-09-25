@@ -15,7 +15,7 @@ import clsx from 'clsx'
 import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   Button, IconBulbOutlineRegular, IconCheckOutlineRegular, IconChevronDownOutlineRegular,
-  IconDataOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, IconWarningOutlineRegular, Input, Modal, Toast,
+  IconDataOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, IconWarningOutlineRegular, Input, Modal, StateDot, Toast,
   useDismissOnOutsidePointer,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
@@ -275,8 +275,13 @@ export function ModelSelect(
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
 
-  const choices = useMemo(() => state.groups.flatMap(group =>
-    group.models.map(model => ({ group, model }))), [state.groups])
+  // Catalog order is Host-determined; the surface presents the account route
+  // first, then the official one, then every other provider in catalog order.
+  const groups = useMemo(() => state.groups.toSorted((left, right) =>
+    (left.id === 'deepseek-account' ? 0 : left.id === 'deepseek-official' ? 1 : 2)
+      - (right.id === 'deepseek-account' ? 0 : right.id === 'deepseek-official' ? 1 : 2)), [state.groups])
+  const choices = useMemo(() => groups.flatMap(group =>
+    group.models.map(model => ({ group, model }))), [groups])
   const currentChoice = state.current === null
     ? undefined
     : choices.find(choice => (
@@ -536,7 +541,7 @@ export function ModelSelect(
             )}
             {state.failures.map(failure => (
               <div className={css.warning} role="status" key={failure.id}>
-                <span>{t('warning.groupLoad', { name: failure.name, message: failure.message })}</span>
+                <span>{t('warning.groupLoad', { name: failure.id === 'deepseek-account' ? t('provider.account') : failure.name, message: failure.message })}</span>
                 <button type="button" className={css.retry} onClick={reload}>{t('retry')}</button>
               </div>
             ))}
@@ -564,10 +569,12 @@ export function ModelSelect(
                   <IconDataOutlineRegular className={css.optionIcon} size={16} />
                   <span className={css.optionCopy}>
                     <span className={css.modelName}>{model.name}</span>
-                    <span className={css.modelId}>{group.id}/{model.id} · {group.name}</span>
+                    <span className={css.modelId}>{group.id}/{model.id} · {group.id === 'deepseek-account' ? t('provider.account') : group.name}</span>
                   </span>
                   <span className={css.check}>
-                    {selected ? <IconCheckOutlineRegular /> : null}
+                    {state.pending?.provider === group.id && state.pending.model === model.id
+                      ? <StateDot state="ongoing" />
+                      : selected ? <IconCheckOutlineRegular /> : null}
                   </span>
                 </button>
               )

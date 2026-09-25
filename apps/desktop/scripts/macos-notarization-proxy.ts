@@ -5,6 +5,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } f
 import { connect } from 'node:net'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { loadFlockEntry } from './flock-entry.ts'
 
 interface ProxyState {
   readonly enabled: boolean
@@ -49,13 +50,11 @@ const operations: ProxyOperations = {
 }
 
 async function withProxyLock<T>(lock: string, action: () => Promise<T>): Promise<T> {
+  const { tryLockExclusive } = await loadFlockEntry()
   mkdirSync(dirname(lock), { recursive: true, mode: 0o700 })
   // Keep this inode across transactions: unlinking it would allow two independent locks.
   const fd = openSync(`${lock}.flock`, 'a', 0o600)
   try {
-    // Loaded here rather than at module load: the packaging entry imports this module on
-    // every target, and the addon's built entry only exists after that run's own build.
-    const { tryLockExclusive } = await import('@deepseek-ai/node-addon-system/flock')
     try { await tryLockExclusive(fd) } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
       if (code !== 'EAGAIN' && code !== 'EWOULDBLOCK') throw error

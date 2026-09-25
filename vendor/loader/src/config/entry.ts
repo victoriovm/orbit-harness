@@ -1,5 +1,6 @@
-import { Context, Fiber, FiberState, Inject, resolveConfig } from '@deepseek-ai/cordis'
+import { Context, type Fiber, Inject, resolveConfig } from '@deepseek-ai/cordis'
 import { deepEqual, isNullable, updateVolatile, volatileEntries, type Volatile } from '@deepseek-ai/cosmokit'
+import { FIBER_STATE_ACTIVE } from '../fiber-state.ts'
 import { Loader } from '../index.ts'
 import { EntryGroup } from './group.ts'
 import { EntryTree } from './tree.ts'
@@ -142,7 +143,7 @@ export class Entry {
         .filter(key => !deepEqual(this.options[key], legacy[key], key === 'config'))
       // Only an active fiber in an unchanged context takes volatile-only config changes without a remount.
       const volatileOnly = changes.length === 1 && changes[0] === 'config'
-        && this.fiber.state === FiberState.ACTIVE && Object.getPrototypeOf(this.ctx) === this.parent.ctx
+        && this.fiber.state === FIBER_STATE_ACTIVE && Object.getPrototypeOf(this.ctx) === this.parent.ctx
         && equalExceptVolatile(legacy.config, this.options.config, this.fiber.runtime?.Config)
       if (volatileOnly) this.fiber._config = this.options.config
       const pending = volatileOnly && this._commitVolatile() ? [] : changes

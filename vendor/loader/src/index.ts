@@ -1,6 +1,7 @@
-import { Context, FiberState, Inject, Service, type Fiber } from '@deepseek-ai/cordis'
+import { Context, Inject, Service, type Fiber } from '@deepseek-ai/cordis'
 import { defineProperty, isNullable, type Dict } from '@deepseek-ai/cosmokit'
 import { ModuleLoader } from './internal.ts'
+import { FIBER_STATE_UNLOADING } from './fiber-state.ts'
 import { Entry, type EntryOptions } from './config/entry.ts'
 import { EntryGroup } from './config/group.ts'
 import isolate from './config/isolate.ts'
@@ -153,7 +154,7 @@ export class Loader extends EntryTree {
 
       // case 5: the entry's tree is being disposed
       const treeOwner = fiber.entry.parent.tree.ctx.fiber
-      if (!treeOwner.uid || treeOwner.state === FiberState.UNLOADING) return
+      if (!treeOwner.uid || treeOwner.state === FIBER_STATE_UNLOADING) return
 
       this.showLog(fiber.entry, 'unload')
 

@@ -18,6 +18,7 @@ export type {
 } from './contract/slots.ts'
 export type { ConfigForms } from './config-form.ts'
 export type { ConfigForm, ConfigFormSnapshot } from './config-form-types.ts'
+export type { BooleanPreference, BooleanPreferenceStarts } from './preference.ts'
 export type { SettingsSchemaService } from './schema.ts'
 export type { SchemaNode } from './schema.ts'
 export type {

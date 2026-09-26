@@ -55,6 +55,7 @@ The kernel packages boot and serve the page; the UI feature packages present it.
 | [`ui-conversation/`](ui-conversation/README.md) | Presents the active conversation and its input surface | — |
 | [`ui-chat/`](ui-chat/README.md) | Projects and renders the Chat conversation target | — |
 | [`ui-approval/`](ui-approval/README.md) | Presents approval requests and returns user decisions | — |
+| [`ui-attention-sound/`](ui-attention-sound/README.md) | Plays a Host-picked sound when a Session needs attention and the window is unfocused | — |
 | [`ui-tool/`](ui-tool/README.md) | Composes Tool call trees and keyed per-Tool views | — |
 | [`ui-workflow-run/`](ui-workflow-run/README.md) | Replays durable workflow runs as nested chat disclosures | — |
 | [`ui-goal/`](ui-goal/README.md) | Presents and manages the current goal | — |

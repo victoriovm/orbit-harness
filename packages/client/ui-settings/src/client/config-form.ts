@@ -28,6 +28,7 @@ import type {} from '@deepseek-ai/dsh-settings/types'
 import type { SettingsSchemaService } from './schema.ts'
 import type { ConfigForm, ConfigFormSnapshot } from './config-form-types.ts'
 import { SettingsDescribeMirror, type SettingsDescribeFace } from './settings-mirror.ts'
+import { booleanPreference, type BooleanPreference, type BooleanPreferenceStarts } from './preference.ts'
 
 /** Domain-owned description of one settings namespace consumed by a browser plugin. */
 interface ConfigFormSpec<T> {
@@ -299,6 +300,20 @@ export class ConfigForms extends Service {
     this.forms.set(entryId, form)
     void this.mirror.ensure()
     return form
+  }
+
+  /**
+   * Build one boolean preference over one Host plugin entry: Host-backed while
+   * the document serves the namespace, browser-local in memory mode. Callers
+   * of one entry share the underlying form, so they can never disagree about
+   * the accepted value.
+   * @param entryId - unique Host plugin entry id owning the field.
+   * @param field - scalar boolean field inside the namespace section.
+   * @param starts - the two faces' starting values.
+   * @returns the preference face.
+   */
+  booleanPreference(entryId: string, field: string, starts: BooleanPreferenceStarts): BooleanPreference {
+    return booleanPreference(this.get<Record<string, unknown>>(entryId), field, starts)
   }
 
   /**

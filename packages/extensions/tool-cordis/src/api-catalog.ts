@@ -505,6 +505,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'attentionSounds',
+    summary: 'Host Remote service behind the `attentionSounds` Client namespace.',
+    description: 'Host Remote service behind the `attentionSounds` Client namespace.',
+    methods: [
+      {
+        signature: '@Remote async pick(): Promise<AttentionSoundPick>',
+        description: 'Choose and deliver one attention sound: a uniformly random eligible file from the user\'s `sounds/` folder, or the bundled fallback when the folder is absent, is not a directory, or offers no eligible file this call.',
+        parameters: [],
+        returns: 'the chosen sound\'s file name and complete bytes.',
+      },
+    ],
+  },
+  {
     key: 'authorization',
     summary: '`ctx.authorization`: a registry of credential-obtaining flows, one attempt at a time per key.',
     description: '`ctx.authorization`: a registry of credential-obtaining flows, one attempt at a time per key.',
@@ -4571,6 +4584,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AttachmentId',
     declaration: 'export type AttachmentId = Branded<\'AttachmentId\'>;',
+  },
+  {
+    name: 'AttentionSoundPick',
+    declaration: 'export interface AttentionSoundPick {\n    readonly name: string;\n    readonly data: Uint8Array;\n}',
   },
   {
     name: 'AuthorizationEntry',

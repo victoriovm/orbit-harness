@@ -102,6 +102,12 @@
     - id: session-controller
       name: '@deepseek-ai/dsh-api-session-controller'
 
+    # Chooses and delivers one attention sound (the user's .dsh/sounds folder,
+    # or the bundled fallback) to the browser half of the ui-attention-sound
+    # row below.
+    - id: attention-sounds
+      name: '@deepseek-ai/dsh-api-attention-sounds'
+
     # One background job's observation record streamed over Typert Remote;
     # the roster rides the session control stream above.
     - id: job-controller
@@ -327,6 +333,12 @@
     # hole renders empty.
     - id: ui-deliverables
       name: '@deepseek-ai/dsh-client-ui-deliverables'
+
+    # Attention sound: plays a Host-picked sound when a Session stops, awaits
+    # an interaction, or errors while the window is unfocused; the General
+    # settings row edits its enabled choice.
+    - id: ui-attention-sound
+      name: '@deepseek-ai/dsh-client-ui-attention-sound'
 
     # Records each top-level turn's changed files from git working-tree
     # snapshots; the changed-files card above renders its events.

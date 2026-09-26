@@ -208,6 +208,7 @@
     { "path": "./packages/client/ui-conversation/tsconfig.host.json" },
     { "path": "./packages/client/ui-settings/tsconfig.host.json" },
     { "path": "./packages/client/ui-settings-general/tsconfig.host.json" },
+    { "path": "./packages/client/ui-attention-sound/tsconfig.host.json" },
 
     { "path": "./packages/host/product-telemetry-otel" },
     { "path": "./packages/boot/config-editor" },
@@ -274,6 +275,7 @@
     { "path": "./packages/api/remotes/tsconfig.host.json" },
     { "path": "./packages/api/job-controller/tsconfig.host.json" },
     { "path": "./packages/api/session-controller/tsconfig.host.json" },
+    { "path": "./packages/api/attention-sounds" },
     { "path": "./packages/api/workspace-files/tsconfig.host.json" },
     { "path": "./packages/api/settings-controller" },
     { "path": "./packages/api/workspace-controller/tsconfig.host.json" },

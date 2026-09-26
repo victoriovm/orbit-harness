@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/api/attention-sounds/README.md
+/:
+  en: a14c4d4c6d687051
+  zh: f3ff23d5712a77fd
+/deepseek-ai-dsh-api-attention-sounds:
+  en: d6667926081de93d
+  zh: 415e8bca05093c4a
+/deepseek-ai-dsh-api-attention-sounds/summary:
+  en: 0a7fc42c65dea6f1
+  zh: 2fada3aa676ab4d9
+/deepseek-ai-dsh-api-attention-sounds/table-of-contents:
+  en: 76368b6b1da79c80
+  zh: 8c793959d1d9dd33
+/deepseek-ai-dsh-api-attention-sounds/use-this-package:
+  en: d5cde2117867689a
+  zh: 92843981f8c4d045
+/deepseek-ai-dsh-api-attention-sounds/use-this-package/the-sounds-folder:
+  en: 5c4d7bd671f29fdf
+  zh: 6be324149970e4ee
+/deepseek-ai-dsh-api-attention-sounds/use-this-package/configuration:
+  en: e633bd4daec49c13
+  zh: 11aea90a72af8e6e
+/deepseek-ai-dsh-api-attention-sounds/understand-the-implementation:
+  en: c93e862eb4793cbd
+  zh: 34eda1842f9a7f8c
+/deepseek-ai-dsh-api-attention-sounds/model-experience:
+  en: 8304c4719d9e58e5
+  zh: afe7c4a5d92e5081
+/deepseek-ai-dsh-api-attention-sounds/model-experience/kv-cache-effect:
+  en: 76fb17962392c199
+  zh: 418937241353e519
+/deepseek-ai-dsh-api-attention-sounds/known-limitations-and-deferred-work:
+  en: 37177e97c9cc7861
+  zh: 5f907bdb09b10f0a
+/deepseek-ai-dsh-api-attention-sounds/known-limitations-and-deferred-work/dev-note:
+  en: 06deb1e6945e89bb
+  zh: 6f5a05a57518223b

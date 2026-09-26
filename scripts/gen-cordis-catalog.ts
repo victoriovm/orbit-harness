@@ -109,6 +109,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   sessionProjectionCache: 'session-projection.md',
   sessionProjections: 'session-projection.md',
   sessionController: 'session.md',
+  attentionSounds: 'web-client.md',
   sessionSkillCatalog: 'skills.md',
   sessions: 'session.md',
   settings: 'settings.md',
@@ -273,6 +274,7 @@ export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
  * appear on more than one page.
  */
 export const LINK_MAP: Readonly<Record<string, string>> = {
+  AttentionSoundPick: 'Host attention-sound endpoint contract is owned by packages/api/attention-sounds/README.md',
   ProductTelemetryRecord: 'product-telemetry.md',
   ProductTelemetryScalar: 'product-telemetry.md',
   WorkspaceChangesSummary: 'deliverables.md',

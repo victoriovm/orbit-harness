@@ -98,3 +98,32 @@ Web 和桌面端共享[代码工作工具偏好](../../packages/client/ui-settin
 - [API Gateway](../api-gateway.zh.md)：Host method、生成的 Remote contribution、stream 与 forwarded event。
 - [Web Client Slots](slots.zh.md)：component、hook、store、injection 与 placement。
 - [Conversation](conversation.zh.md)：持久 event correlation、target snapshot，以及 Chat 或 Trajectory view contribution。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis API
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxattentionsounds--attentionsounds"></a>
+
+### `ctx.attentionSounds` — `AttentionSounds`
+
+Host Remote service behind the `attentionSounds` Client namespace.
+
+```ts cordis-catalog
+/**
+ * Choose and deliver one attention sound: a uniformly random eligible file
+ * from the user's `sounds/` folder, or the bundled fallback when the folder
+ * is absent, is not a directory, or offers no eligible file this call.
+ * @returns the chosen sound's file name and complete bytes.
+ */
+@Remote async pick(): Promise<AttentionSoundPick>
+```
+
+Types: [AttentionSoundPick](Host attention-sound endpoint contract is owned by packages/api/attention-sounds/README.md)
+
+Source: [`packages/api/attention-sounds/src/index.ts`](../../packages/api/attention-sounds/src/index.ts)
+<!-- END GENERATED cordis-surface -->

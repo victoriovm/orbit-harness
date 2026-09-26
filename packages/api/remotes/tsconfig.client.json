@@ -102,6 +102,9 @@
       "path": "../../document/office-to-pdf"
     },
     {
+      "path": "../attention-sounds"
+    },
+    {
       "path": "../account-controller"
     },
     {
